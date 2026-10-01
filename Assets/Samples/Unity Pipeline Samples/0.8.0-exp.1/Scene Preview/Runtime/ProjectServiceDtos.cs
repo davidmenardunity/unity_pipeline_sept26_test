@@ -2,173 +2,188 @@ using System;
 
 namespace Unity.Pipeline.Samples.ScenePreview
 {
-    // Request/response payloads for the Project Service asset-pipeline API, shaped for UnityEngine's
-    // JsonUtility: fields are named to match the JSON keys verbatim (JsonUtility matches by field name,
-    // case-sensitive), so they are camelCase — and snake_case on the job snapshot, which the /jobs
-    // routes serialise that way. Only the request fields the sample always sends are declared; optional
-    // fields we never set (e.g. a UVCS connection id) are omitted so JsonUtility never emits them empty.
-    // Unknown response fields are ignored by JsonUtility, so partial DTOs are fine.
+    // Request/response payloads for the pipeline broker, shaped for UnityEngine's JsonUtility: fields are
+    // named to match the JSON keys verbatim (JsonUtility matches by field name, case-sensitive). Unknown
+    // response fields are ignored, so partial DTOs are fine. JsonUtility can't express a missing object:
+    // an absent nested object comes back with empty fields, so check its strings, not the reference.
+
+    // ── workbenches ──────────────────────────────────────────────────────────
 
     [Serializable]
-    public class CreateWorkbenchRequest
-    {
-        public string type;   // "git" or "uvcs"
-        public string repo;
-        public string branch;
-        public string name;
-    }
-
-    [Serializable]
-    public class WorkbenchCreatedResponse
+    public class WorkbenchItem
     {
         public string workbenchId;
-        public string name;
-        public string revision;
-    }
-
-    // GET /projects/{projectId} resolves a project by GUID or name to its repo GUID.
-    [Serializable]
-    public class ProjectResolveResponse
-    {
-        public string name;
-        public string guid;
-    }
-
-    [Serializable]
-    public class WorkbenchSummary
-    {
-        public string workbenchId;
-        public string name;
-        public string type;
+        public string branchName;
         public string upstreamRepository;
-        public string upstreamRevision;
+        public string upstreamRevision;   // the commit the workbench was created from
+        public string createdAt;          // ISO 8601
     }
 
     [Serializable]
     public class WorkbenchListResult
     {
-        public WorkbenchSummary[] workbenches;
+        public WorkbenchItem[] items;
     }
 
-    // The 409 name_conflict body hands back the existing workbench's id so the caller can adopt it.
     [Serializable]
-    public class NameConflictResponse
+    public class CreateWorkbenchRequest
     {
-        public string code;
-        public string workbenchId;
-    }
-
-    // GET /workbenches/{id} — only the fields needed to verify an adopted workbench points at our repo.
-    [Serializable]
-    public class WorkbenchDetailsResponse
-    {
-        public string upstreamRepository;
-        public string upstreamRevision;
+        public string type;   // "git"
+        public string branch;
+        public string repo;   // public https git URL
     }
 
     [Serializable]
-    public class PatchWorkbenchRequest
-    {
-        public string type;   // "sync"
-    }
-
-    [Serializable]
-    public class SyncError
+    public class ValidationError
     {
         public string category;
         public string message;
     }
 
     [Serializable]
-    public class WorkbenchSyncResponse
+    public class WorkbenchValidation
     {
-        public string status;   // "validated" or "failed"
-        public SyncError error;
+        public string status;   // e.g. in_progress | validated | failed
+        public ValidationError error;
     }
 
     [Serializable]
-    public class WorkbenchHeadResponse
+    public class WorkbenchDetails
     {
+        public string workbenchId;
+        public string branchName;
+        public string upstreamRepository;
+        public string upstreamRevision;
+        public WorkbenchValidation validation;
+    }
+
+    [Serializable]
+    public class ReadinessResponse
+    {
+        public string readiness;         // settled | settling | gone | unknown
         public string branch;
+        public string settledRevision;   // empty until the first validation passes
         public string head;
-        public string settledRevision;   // omitted until first validation; may lag head
-        public bool settling;
     }
 
+    // ── environments ─────────────────────────────────────────────────────────
+
     [Serializable]
-    public class CreateProfileRequest
+    public class EnvironmentItem
     {
+        public string environmentId;
+        public string platform;      // Windows64 | Linux64 | MacOS64 | iOS | Android
+        public string workbenchId;   // the list can include other workbenches' environments
         public string name;
-        public string buildTarget;
     }
 
     [Serializable]
-    public class ProfileResponse
+    public class EnvironmentListResult
     {
-        public string profileId;
-        public string name;
-        public string buildTarget;
-    }
-
-    [Serializable]
-    public class ProfileListResponse
-    {
-        public ProfileResponse[] profiles;
+        public EnvironmentItem[] items;
     }
 
     [Serializable]
     public class CreateEnvironmentRequest
     {
-        public string profileGuid;
-        public string workbenchGuid;
-        public string name;
+        public string platform;
+    }
+
+    // ── discovery ────────────────────────────────────────────────────────────
+
+    [Serializable]
+    public class ManifestItem
+    {
+        public string path;        // "/Assets/…" (or a package path)
+        public string assetGuid;
+        public bool isFolder;
     }
 
     [Serializable]
-    public class EnvironmentResponse
+    public class ManifestPage
     {
-        public string environmentId;
-        public string name;
-        public string profileId;
-        public string workbenchId;
-    }
-
-    [Serializable]
-    public class AssetSearchItem
-    {
-        public string path;
-        public string guid;
-        public string name;
-        public string type;   // "file" or "folder"
-    }
-
-    [Serializable]
-    public class AssetSearchResponse
-    {
-        public string workbenchVersion;
-        public AssetSearchItem[] results;
+        public ManifestItem[] items;
         public string nextCursor;
     }
 
-    // The 202 retry envelope. jobId/links are present only on the job-backed shape; the minimal shape
-    // carries just disposition. See ProjectServiceClient for how these drive the re-issue loop.
+    // ── imports ──────────────────────────────────────────────────────────────
+
+    [Serializable]
+    public class ImportRequest
+    {
+        public string[] addresses;
+    }
+
+    [Serializable]
+    public class ImportFile
+    {
+        public string name;          // empty for the importer's main output
+        public string contentHash;
+    }
+
+    [Serializable]
+    public class ImportManifest
+    {
+        public string importResultId;
+        public string[] artifacts;   // names of the importer's extra output files, e.g. "….ca"
+        public ImportFile[] files;
+    }
+
+    [Serializable]
+    public class SlotError
+    {
+        public string code;      // e.g. import_not_found: the project has no importer of that type
+        public string message;
+    }
+
+    [Serializable]
+    public class ImportSlot
+    {
+        public ImportManifest manifest;
+        public SlotError error;
+    }
+
+    [Serializable]
+    public class ImportResults
+    {
+        public ImportSlot[] results;
+    }
+
+    // ── async protocol and errors ────────────────────────────────────────────
+
+    // The 202 envelope: a jobId to poll, then re-issue the original request.
     [Serializable]
     public class AcceptedRetryResponse
     {
         public string jobId;
         public string status;
-        public string disposition;   // "retry" | "repin" | "terminal"
+        public string disposition;   // "retry" | "repin" | "terminal" (Project Service; the broker sends none)
     }
 
-    // GET /jobs/{jobId} — the job routes serialise snake_case, unlike the camelCase workbench routes.
+    // GET /jobs/{jobId}.
     [Serializable]
     public class JobSnapshot
     {
-        public string job_id;
-        public string status;   // queued | processing | cancelling | cancelled | completed | failed
-        public int progress_percentage;
-        public string log_message;
-        public int error_code;
-        public string error_message;
+        public string jobId;
+        public string kind;
+        public string state;
+        public bool isTerminal;
+    }
+
+    [Serializable]
+    public class ProblemError
+    {
+        public string code;
+        public string message;
+    }
+
+    // A failed call's problem+json body: the server's code, message and request id.
+    [Serializable]
+    public class ProblemResponse
+    {
+        public ProblemError error;
+        public string title;
+        public string detail;
+        public string requestId;
     }
 }

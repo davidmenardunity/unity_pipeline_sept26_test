@@ -285,7 +285,7 @@ namespace Unity.Pipeline.Samples.ScenePreview.Importer
         /// <summary>
         /// Explicitly produce the content-archive artifact for an asset. Returns the ArtifactID.
         /// </summary>
-        public static ImportResultID ProduceContentArtifact(string assetPath)
+        public static ArtifactID ProduceContentArtifact(string assetPath)
         {
             var guid = AssetDatabase.GUIDFromAssetPath(assetPath);
             if (guid.Empty())

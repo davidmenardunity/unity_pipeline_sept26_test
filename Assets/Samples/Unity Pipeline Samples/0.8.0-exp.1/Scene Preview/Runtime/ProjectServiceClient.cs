@@ -16,8 +16,8 @@ namespace Unity.Pipeline.Samples.ScenePreview
     {
         public enum ServiceMode
         {
-            // The public Unity Services gateway. Requests carry the signed-in user's token, and the
-            // routes address the project's Unity Cloud organization and project.
+            // The Unity Services gateway (staging or production). Requests carry the user's bearer
+            // token, and the routes address the Unity Cloud organization and project.
             UnityCloud,
             // A Project Service your organization hosts (on-prem, or localhost for development). No auth
             // header is sent — the service uses its own configured credential.
@@ -28,15 +28,17 @@ namespace Unity.Pipeline.Samples.ScenePreview
                  "your organization runs, reached directly with no auth header.")]
         [SerializeField] ServiceMode m_Mode = ServiceMode.UnityCloud;
 
-        [Tooltip("Service base URL. Unity Cloud: " + AssetPipelineRoute.UnityCloudGateway +
-                 ". Self Hosted: your service's address, e.g. http://localhost:8811.")]
-        [SerializeField] string m_BaseUrl = AssetPipelineRoute.UnityCloudGateway;
+        [Tooltip("Gateway base URL. Staging: " + AssetPipelineRoute.StagingGateway + " (needs the VPN). Production: " +
+                 AssetPipelineRoute.ProductionGateway + ". Self Hosted: your service's address.")]
+        [SerializeField] string m_BaseUrl = AssetPipelineRoute.StagingGateway;
 
-        [Tooltip("Unity Cloud organization id. Filled in from Project Settings > Services when empty.")]
+        [Tooltip("The pipeline project's Unity Cloud organization: its numeric id (ORG_ID). Filled in from " +
+                 "Project Settings > Services when empty, which is only right if the project is linked to the " +
+                 "same Cloud project the pipeline serves.")]
         [SerializeField] string m_OrgId = "";
 
-        [Tooltip("Unity Cloud project id. Filled in from Project Settings > Services when empty. Self Hosted " +
-                 "may leave it empty and let PreviewSession resolve its Project Name instead.")]
+        [Tooltip("The pipeline project's Unity Cloud project id (PROJECT_ID, a UUID). Filled in from Project " +
+                 "Settings > Services when empty, with the same caveat.")]
         [SerializeField] string m_ProjectGuid = "";
 
         [Header("Async")]
@@ -129,7 +131,7 @@ namespace Unity.Pipeline.Samples.ScenePreview
 
                 result.Ok = req.responseCode >= 200 && req.responseCode < 300;
                 if (!result.Ok)
-                    result.Error = $"{method} {url}: HTTP {req.responseCode} {req.error}";
+                    result.Error = $"{method} {url}: HTTP {req.responseCode} {Problem(result.Text, req.error)}";
                 break;
             }
 
@@ -198,7 +200,7 @@ namespace Unity.Pipeline.Samples.ScenePreview
                     continue;
                 }
 
-                result.Error = $"GET {url}: HTTP {req.responseCode} {req.error}";
+                result.Error = $"GET {url}: HTTP {req.responseCode} {Problem(ReadRetryEnvelope(req, destPath), req.error)}";
                 break;
             }
 
@@ -223,9 +225,7 @@ namespace Unity.Pipeline.Samples.ScenePreview
 
                 if (req.result != UnityWebRequest.Result.ConnectionError && req.responseCode == 200)
                 {
-                    var snap = SafeFromJson<JobSnapshot>(req.downloadHandler.text);
-                    var status = snap?.status;
-                    if (status == "completed" || status == "failed" || status == "cancelled")
+                    if (SafeFromJson<JobSnapshot>(req.downloadHandler.text)?.isTerminal == true)
                         yield break;
                 }
 
@@ -280,6 +280,22 @@ namespace Unity.Pipeline.Samples.ScenePreview
             try { return File.Exists(destPath) ? File.ReadAllText(destPath) : null; }
             catch { return null; }
 #endif
+        }
+
+        // The server's code, message and request id from a problem+json body; an HTML 403 from the
+        // network edge means the caller isn't on the VPN.
+        static string Problem(string body, string fallback)
+        {
+            if (string.IsNullOrEmpty(body))
+                return fallback;
+            if (body.TrimStart().StartsWith("<"))
+                return "(an HTML page from the network edge: are you on the VPN?)";
+            var p = SafeFromJson<ProblemResponse>(body);
+            if (p == null)
+                return body.Length > 200 ? body.Substring(0, 200) : body;
+            var code = p.error?.code;
+            var message = !string.IsNullOrEmpty(p.error?.message) ? p.error.message : p.detail ?? p.title;
+            return $"{code} {message}".Trim() + (string.IsNullOrEmpty(p.requestId) ? "" : $" [requestId {p.requestId}]");
         }
 
         static string ParseJobId(string envelope)

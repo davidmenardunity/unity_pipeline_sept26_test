@@ -217,7 +217,7 @@ namespace Unity.Pipeline.Samples.ScenePreview.Importer
         /// Explicitly produce the context artifact (GlobalUsage) for a BuildProfile.
         /// Returns the ArtifactID if successful.
         /// </summary>
-        public static ImportResultID ProduceContextArtifact(string buildProfilePath = null)
+        public static ArtifactID ProduceContextArtifact(string buildProfilePath = null)
         {
             if (string.IsNullOrEmpty(buildProfilePath))
                 buildProfilePath = BuildProfilePath;
@@ -243,7 +243,7 @@ namespace Unity.Pipeline.Samples.ScenePreview.Importer
         /// Get the artifact paths for a context artifact previously produced via ProduceContextArtifact.
         /// Returns null if the id is invalid.
         /// </summary>
-        public static string[] GetContextArtifactPaths(ImportResultID artifactId)
+        public static string[] GetContextArtifactPaths(ArtifactID artifactId)
         {
             if (!artifactId.isValid)
                 return null;

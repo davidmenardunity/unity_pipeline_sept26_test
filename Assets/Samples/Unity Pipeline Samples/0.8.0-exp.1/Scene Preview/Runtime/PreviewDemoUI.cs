@@ -334,6 +334,8 @@ namespace Unity.Pipeline.Samples.ScenePreview
                 SortFiles(kv.Value);
         }
 
+        string Detail => string.IsNullOrEmpty(m_Session.StatusDetail) ? "" : $"({m_Session.StatusDetail})";
+
         static string BreadcrumbOf(Node node)
             => string.IsNullOrEmpty(node.FullPath) ? "/" : node.FullPath;
 
@@ -345,17 +347,19 @@ namespace Unity.Pipeline.Samples.ScenePreview
                 {
                     case PreviewSession.State.Idle: return "Starting…";
                     case PreviewSession.State.WaitingForSignIn: return "Sign in to Unity to browse assets";
-                    case PreviewSession.State.CreatingWorkbench: return "Creating workbench…";
-                    case PreviewSession.State.Validating: return "Validating workbench…";
+                    case PreviewSession.State.CreatingWorkbench: return $"Finding the workbench… {Detail}";
+                    case PreviewSession.State.Validating: return $"Waiting for the workbench to validate… {Detail}";
                     case PreviewSession.State.ResolvingRevision: return "Resolving revision…";
-                    case PreviewSession.State.PreparingEnvironment: return "Preparing environment…";
-                    case PreviewSession.State.DiscoveringAssets: return "Discovering assets…";
+                    case PreviewSession.State.PreparingEnvironment: return $"Preparing the environment… {Detail}";
+                    case PreviewSession.State.DiscoveringAssets: return $"Discovering assets… {Detail}";
                     case PreviewSession.State.Failed: return $"Setup failed: {m_Session.LastError}";
                 }
             }
 
             if (!PickerReady)
                 return m_SignIn != null ? "Sign in to Unity to load previews" : "No token provider configured";
+            if (!string.IsNullOrEmpty(m_Client.Status))
+                return $"{m_PendingName ?? "Preview"}: {m_Client.Status}";
             if (m_Loader.IsPreparing)
                 return $"Loading {m_PendingName ?? "preview"}…";
             if (m_FailureText != null)
