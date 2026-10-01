@@ -53,6 +53,9 @@ namespace Unity.Pipeline.Samples.ScenePreview
             m_Loader = GetComponent<PreviewLoader>();
             m_ProjectService = GetComponent<ProjectServiceClient>();
             m_Session = GetComponent<PreviewSession>();
+            // -previewLocalArchive <path>: load that .ca for every request, with no network.
+            if (CommandLine.Get("-previewLocalArchive") is { Length: > 0 } local)
+                m_LocalArchivePath = local;
         }
 
         /// <summary>Request, download, and preview the content archive for the given asset GUID.</summary>

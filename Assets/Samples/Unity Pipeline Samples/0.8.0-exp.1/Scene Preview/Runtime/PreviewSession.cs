@@ -71,7 +71,19 @@ namespace Unity.Pipeline.Samples.ScenePreview
         public bool IsReady => CurrentState == State.Ready;
         public IReadOnlyList<PreviewDemoUI.PreviewAsset> Assets => m_Assets;
 
-        void Awake() => m_ProjectService = GetComponent<ProjectServiceClient>();
+        void Awake()
+        {
+            m_ProjectService = GetComponent<ProjectServiceClient>();
+            // Command-line overrides, for running a built player without touching the scene:
+            // -previewWorkbench <id> picks the workbench, -previewGuid <guid> previews that asset once ready.
+            if (CommandLine.Get("-previewWorkbench") is { Length: > 0 } workbench)
+                m_WorkbenchId = workbench;
+            if (CommandLine.Get("-previewGuid") is { Length: > 0 } guid)
+            {
+                m_AutoPreviewGuid = guid;
+                m_AutoPreviewFirstOnReady = true;
+            }
+        }
 
         void Start()
         {
@@ -381,6 +393,19 @@ namespace Unity.Pipeline.Samples.ScenePreview
             CurrentState = State.Failed;
             LastError = message;
             Debug.LogError($"[PreviewSession] {message}");
+        }
+    }
+
+    static class CommandLine
+    {
+        /// <summary>The value after <paramref name="name"/> on the command line, or null.</summary>
+        public static string Get(string name)
+        {
+            var args = Environment.GetCommandLineArgs();
+            for (var i = 0; i < args.Length - 1; i++)
+                if (string.Equals(args[i], name, StringComparison.Ordinal))
+                    return args[i + 1];
+            return null;
         }
     }
 }
