@@ -1,0 +1,30 @@
+{
+    "name": "Unity.Pipeline.Samples.ScenePreview.Auth",
+    "rootNamespace": "Unity.Pipeline.Samples.ScenePreview.Auth",
+    "references": [
+        "Unity.Pipeline.Samples.ScenePreview",
+        "Unity.Cloud.Common",
+        "Unity.Cloud.Common.Runtime",
+        "Unity.Cloud.Identity",
+        "Unity.Cloud.Identity.Runtime",
+        "Unity.Cloud.AppLinking",
+        "Unity.Cloud.AppLinking.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "HAS_CLOUD_IDENTITY"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.cloud.identity",
+            "expression": "",
+            "define": "HAS_CLOUD_IDENTITY"
+        }
+    ],
+    "noEngineReferences": false
+}

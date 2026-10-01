@@ -1,0 +1,18 @@
+{
+    "name": "Unity.Pipeline.Samples.ScenePreview.Importer",
+    "rootNamespace": "Unity.Pipeline.Samples.ScenePreview.Importer",
+    "references": [
+        "Unity.Pipeline.Samples.ScenePreview"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
