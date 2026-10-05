@@ -1,0 +1,11 @@
+# Holds your bearer token. Never commit it.
+.env
+
+# .NET build output and IDE state.
+bin/
+obj/
+.vs/
+*.user
+
+# The Unity .gitignore above ignores every *.csproj (Unity regenerates its own).
+!*.csproj

@@ -1,0 +1,356 @@
+#
+# Unity Pipeline (staging) — every call, for VS Code's REST Client
+# (extension humao.rest-client). Click "Send Request" above a call.
+#
+# Settings come from .env next to this file (copy .env.example). Needs the
+# corporate VPN: off it, every call answers an HTML 403.
+#
+# NOT covered here, because they aren't HTTP calls on this API:
+#   - Unity Version Control enabled on your org *with a server location*
+#     (Unity Cloud dashboard). Without it, start answers 404 project_not_configured.
+#   - A Unity Cloud project linked to a PUBLIC GitHub repo, Unity 6.5 or older,
+#     no Git LFS (pipeline-main/README.md step 4 does it with the Unity CLI).
+#
+# Order for a first setup: 1 → 2 → 3 (wait for "settled") → 4, then anything below.
+# Calls marked "chained" read an id from an earlier response: send that one first.
+#
+
+@token = {{$dotenv UNITY_JWT}}
+@org = {{$dotenv ORG_ID}}
+@project = {{$dotenv PROJECT_ID}}
+@repo = {{$dotenv GIT_REPO_URL}}
+@branch = {{$dotenv BRANCH}}
+@region = {{$dotenv PIPELINE_REGION}}
+@platform = {{$dotenv PIPELINE_PLATFORM}}
+@workbenchId = {{$dotenv WORKBENCH_ID}}
+@environmentId = {{$dotenv ENVIRONMENT_ID}}
+
+# Broker (public client host). Production: https://services.api.unity.com
+@base = https://staging.services.api.unity.com/api/pipeline/v1/organizations/{{org}}/projects/{{project}}
+# Project service start/status live on the INTERNAL host. Production: https://services.unity.com
+@internal = https://staging.services.unity.com/api/pipeline/v1/organizations/{{org}}/projects/{{project}}
+
+@wb = {{base}}/workbenches/{{workbenchId}}
+
+# Reads are pinned to a validated revision: send "3b. Readiness" first.
+@rev = {{readiness.response.body.$.settledRevision}}
+
+# ── Inputs you edit ───────────────────────────────────────────────────────────
+# A path inside the project must go out as ONE URL segment: '/' becomes %2F.
+@folderEnc = Assets
+@assetPath = Assets/PipelineSample/PipelineSample.mat
+@assetPathEnc = Assets%2FPipelineSample%2FPipelineSample.mat
+# Set by "5d. Resolve GUID" (chained).
+@guid = {{assetGuid.response.body.$.results[0].assetGuid}}
+# Imports: G:{guid} = primary import result; T:{guid}+{importer type} = one importer's.
+@importAddress = G:{{guid}}
+# The address as one URL segment (':' → %3A, '+' → %2B).
+@importAddressEnc = G%3A{{guid}}
+# An artifact name from the import manifest's "artifacts" (7a). Encode '/' as %2F.
+@artifactName = REPLACE_WITH_ARTIFACT_NAME
+
+# Writes: the file to upload, its MD5 (lowercase hex), and where it goes.
+# MD5 in PowerShell: (Get-FileHash .\upload\Hello.txt -Algorithm MD5).Hash.ToLower()
+@uploadMd5 = 6e68ccaf97f660f06ac2e5c0c572829a
+@uploadPath = Assets/PipelineExplorer/Hello.txt
+@uploadFolder = Assets/PipelineExplorer
+@movedPath = Assets/PipelineExplorer/Hello-renamed.txt
+
+
+###############################################################################
+# 1. Project service (one per branch; idles out after some hours)
+###############################################################################
+
+### 1a. Status. "ready" = go. "starting" with projectService.jobStatus Succeeded = actually stopped: start it.
+GET {{internal}}/branches/{{branch}}/projectservice/status
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 1b. Start. 202 = starting (1–2 min cold), 409 = already starting/running. Poll 1a until "ready".
+POST {{internal}}/branches/{{branch}}/projectservice/start
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{ "region": "{{region}}" }
+
+
+###############################################################################
+# 2. Workbenches (the pipeline's live copy of one git branch)
+###############################################################################
+
+### 2a. List your workbenches (owner-scoped; retired ones excluded)
+GET {{base}}/workbenches
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 2b. Create a workbench on a branch. Copy "workbenchId" into WORKBENCH_ID in .env.
+# A workbench doesn't pick up later git pushes: create a new one after you push.
+# To switch branches: start the project service for that branch (1b with another
+# BRANCH), then create a workbench on it.
+# @name createWorkbench
+POST {{base}}/workbenches
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{ "type": "git", "branch": "{{branch}}", "repo": "{{repo}}" }
+
+### 2c. Get the workbench: branches, origin commit, and validation (status, error)
+GET {{wb}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 2d. Retire (soft stop: releases the worker, leaves the listing, still readable)
+POST {{wb}}/stop
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 2e. Delete the workbench (and its environments). Unpublished changes are lost.
+DELETE {{wb}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+
+###############################################################################
+# 3. Validation and revisions
+###############################################################################
+
+### 3a. Workbench validation: poll 2c. validation.status "failed" never settles; read validation.error.
+# (Same as 2c, listed here for the flow.)
+GET {{wb}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 3b. Readiness: settled | settling | gone | unknown. Every read below uses settledRevision.
+# First validation takes 2–3 min; each later change ~40 s.
+# @name readiness
+GET {{wb}}/readiness
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 3c. What changed since a revision (poll; there is no event stream)
+GET {{wb}}/changes?fromRevision=1
+Authorization: Bearer {{token}}
+Accept: application/json
+
+
+###############################################################################
+# 4. Environments (the project imported for one platform; previews and imports need one)
+###############################################################################
+
+### 4a. List. Filter on workbenchId: the list can include other workbenches' environments.
+# Every workbench also gets a validation-linux64 one automatically.
+GET {{wb}}/environments
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 4b. Create one for your platform. Copy "environmentId" into ENVIRONMENT_ID in .env.
+POST {{wb}}/environments
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{ "platform": "{{platform}}" }
+
+
+###############################################################################
+# 5. Browse and read (chained: 3b)
+###############################################################################
+
+### 5a. File tree: one folder level of the committed files (set @folderEnc)
+GET {{wb}}/revisions/{{rev}}/file-tree/{{folderEnc}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 5b. Manifest: what the Editor imported, packages included. Pages of 500; pass nextCursor as &cursor=
+GET {{wb}}/revisions/{{rev}}/manifest?limit=500
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 5c. Search by name (empty q lists every asset)
+GET {{wb}}/revisions/{{rev}}/asset-search?q=PipelineSample
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 5d. Resolve a path to its asset GUID. 202 + jobId the first time: poll 9a, then send again.
+# @name assetGuid
+POST {{wb}}/revisions/{{rev}}/asset-guid
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{ "keys": ["{{assetPath}}"] }
+
+### 5e. Asset facts: path, GUID, hashes, size (no type or importer). Chained: 5d.
+GET {{wb}}/revisions/{{rev}}/assets/{{guid}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 5f. Asset tree (known: 503 status_authority_unavailable on staging; use 5a or 5b)
+GET {{wb}}/revisions/{{rev}}/asset-tree/{{folderEnc}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+
+###############################################################################
+# 6. A file's artifacts: .meta, source, preview (chained: 3b, 5d)
+###############################################################################
+
+### 6a. The .meta file (YAML)
+GET {{wb}}/revisions/{{rev}}/assets/{{guid}}/meta
+Authorization: Bearer {{token}}
+Accept: */*
+
+### 6b. Source bytes by GUID (may answer 202 + jobId first: poll 9a, send again)
+GET {{wb}}/revisions/{{rev}}/assets/{{guid}}/source
+Authorization: Bearer {{token}}
+Accept: */*
+
+### 6c. Source bytes by path
+GET {{wb}}/revisions/{{rev}}/files/{{assetPathEnc}}
+Authorization: Bearer {{token}}
+Accept: */*
+
+### 6d. Preview: 200 + PNG (cached) or 202 + jobId (cold render ~2 min). Then 9b, then 6e.
+# @name preview
+POST {{wb}}/environments/{{environmentId}}/revisions/{{rev}}/previews
+Authorization: Bearer {{token}}
+Accept: image/*, application/json
+Content-Type: application/json
+
+{ "assetGuid": "{{guid}}" }
+
+### 6e. Collect the preview once its job is terminal (202 again = this asset type has no preview)
+GET {{wb}}/environments/{{environmentId}}/revisions/{{rev}}/previews/{{guid}}?allowAsync=false
+Authorization: Bearer {{token}}
+Accept: image/*
+
+
+###############################################################################
+# 7. Imports: an importer's content files (chained: 3b, 5d)
+###############################################################################
+
+### 7a. Request imports (batch). 200 with one slot per address: {manifest} or {error}.
+# Slot error import_not_found = the project has no importer of that type.
+# 409 revision_not_validated right after a cold start: re-send (can take minutes).
+POST {{wb}}/environments/{{environmentId}}/revisions/{{rev}}/imports
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{ "addresses": ["{{importAddress}}"] }
+
+### 7b. One import's manifest (lists "artifacts")
+GET {{wb}}/environments/{{environmentId}}/revisions/{{rev}}/imports/{{importAddressEnc}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 7c. Download one artifact (set @artifactName from 7a/7b)
+GET {{wb}}/environments/{{environmentId}}/revisions/{{rev}}/imports/{{importAddressEnc}}/{{artifactName}}
+Authorization: Bearer {{token}}
+Accept: */*
+
+
+###############################################################################
+# 8. Changes. Each one becomes a new revision that validates (~40 s); poll 3b.
+#    Nothing reaches git until you publish (8i).
+###############################################################################
+
+### 8a. Upload bytes as a blob, keyed by their MD5 (set @uploadMd5 for the file)
+# @name uploadBlob
+PUT {{wb}}/blobs/{{uploadMd5}}
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/octet-stream
+
+< ./upload/Hello.txt
+
+### 8b. Quick save: stage + commit in one call. Only into EXISTING folders. Chained: 8a.
+# Returns revisionId. Use the transaction (8c–8g) for new folders, renames or a message.
+POST {{wb}}/batch
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{ "stage": [{ "path": "{{uploadPath}}", "uploadHandle": "{{uploadBlob.response.body.$.uploadHandle}}" }] }
+
+### 8c. Delete files (their .meta goes with them)
+POST {{wb}}/batch
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{ "delete": ["{{uploadPath}}"] }
+
+### 8d. Open a transaction (one per workbench; auto-aborts when idle)
+# @name openTx
+POST {{wb}}/transactions
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{ "branchName": "{{branch}}" }
+
+### 8e. In the transaction: create folders (outermost first) before staging files into them
+POST {{wb}}/transactions/{{openTx.response.body.$.transactionId}}/assets
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{ "type": "folders", "paths": ["{{uploadFolder}}"] }
+
+### 8f. In the transaction: stage a file. Chained: 8a.
+POST {{wb}}/transactions/{{openTx.response.body.$.transactionId}}/assets
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+[{ "path": "{{uploadPath}}", "uploadHandle": "{{uploadBlob.response.body.$.uploadHandle}}" }]
+
+### 8g. In the transaction: rename/move, keeping the GUID (can take minutes on a cold snapshot)
+PATCH {{wb}}/transactions/{{openTx.response.body.$.transactionId}}/assets
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{ "type": "move", "pathsToMove": [["{{uploadPath}}", "{{movedPath}}"]] }
+
+### 8h. Commit the transaction → revisionId
+PATCH {{wb}}/transactions/{{openTx.response.body.$.transactionId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{ "status": "committed", "message": "Added from pipeline.http" }
+
+### 8h'. …or abort it
+DELETE {{wb}}/transactions/{{openTx.response.body.$.transactionId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 8i. Publish to the upstream git branch. CAREFUL: pushes under a server-configured
+# git token, not yours (DVOPSWEB-7921). Synchronous, can take minutes.
+# 409 publish_drafted = landed on a draft branch. Body not documented here: see the
+# broker spec (Unity-Technologies/pipeline-broker, docs/openapi/broker-api-v1.yaml).
+POST {{wb}}/publishes
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{}
+
+
+###############################################################################
+# 9. Jobs (202 answers carry a jobId)
+###############################################################################
+
+### 9a. Poll a job: wait for isTerminal, then re-send the original request (paste the jobId)
+GET {{base}}/jobs/REPLACE_WITH_JOB_ID
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 9b. Poll the preview job from 6d (chained)
+GET {{base}}/jobs/{{preview.response.body.$.jobId}}
+Authorization: Bearer {{token}}
+Accept: application/json

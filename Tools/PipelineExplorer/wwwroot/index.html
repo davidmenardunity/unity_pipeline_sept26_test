@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pipeline Explorer</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="bar">
+    <strong>Pipeline Explorer</strong>
+    <label>Org ID
+      <input id="org" size="14" placeholder="numeric org id" title="Your org's numeric id (unity cloud org list)">
+    </label>
+    <button id="loadOrg">Load</button>
+    <span id="orgName" class="dim"></span>
+    <label>Project
+      <select id="projectSel"></select>
+    </label>
+    <span id="token" class="pill"></span>
+    <span class="grow"></span>
+    <span id="service" class="pill">project service …</span>
+    <button id="startService">Start service</button>
+    <button id="reload" title="Re-read pipeline-onboard.config (after set-token.sh)">Reload config</button>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <section class="bar controls">
+    <label>Branch
+      <select id="branch"></select>
+    </label>
+    <label>Workbench
+      <select id="workbench"></select>
+    </label>
+    <button id="newWorkbench">Start workbench on branch</button>
+    <button id="deleteWorkbench" class="danger">Delete</button>
+    <span id="readiness" class="dim"></span>
+    <span class="grow"></span>
+    <label>Environment
+      <select id="environment"></select>
+    </label>
+    <select id="platform">
+      <option>Windows64</option><option>Linux64</option><option>MacOS64</option><option>iOS</option><option>Android</option>
+    </select>
+    <button id="addEnvironment">Add</button>
+  </section>
+
+  <section id="progress" class="progress" hidden>
+    <div class="progress-head">
+      <span class="spinner" id="progressSpin"></span>
+      <strong id="progressTitle"></strong>
+      <span id="progressElapsed" class="dim"></span>
+      <span class="grow"></span>
+      <span id="progressHint" class="dim small"></span>
+    </div>
+    <ol id="progressSteps" class="steps"></ol>
+    <div id="progressDetail" class="dim small"></div>
+    <details>
+      <summary class="dim small">State changes</summary>
+      <ol id="progressLog" class="progress-log"></ol>
+    </details>
+  </section>
+
+  <main>
+    <aside class="pane tree-pane">
+      <div class="pane-head">
+        <span>Files <span id="revLabel" class="dim"></span></span>
+        <label class="dim small"><input type="checkbox" id="showMeta"> .meta</label>
+      </div>
+      <ul id="tree" class="tree"></ul>
+    </aside>
+
+    <section class="pane details">
+      <div id="empty" class="dim">Pick a workbench, wait for it to settle, then pick a file.</div>
+      <div id="selection" hidden>
+        <h2 id="selPath"></h2>
+        <dl id="selFacts" class="facts"></dl>
+        <div class="actions">
+          <button data-artifact="meta">.meta file</button>
+          <button data-artifact="source">Source</button>
+          <button data-artifact="preview">Preview</button>
+          <span class="sep"></span>
+          <select id="importMode" title="Which import result">
+            <option value="G">Primary import (G:)</option>
+            <option value="T">Importer type (T:)</option>
+          </select>
+          <input id="importerType" placeholder="UnityEditor.TextureImporter" hidden>
+          <button data-artifact="imports">Content files</button>
+        </div>
+        <div id="results"></div>
+      </div>
+    </section>
+  </main>
+
+  <section class="pane activity">
+    <div class="pane-head">
+      <span>API calls</span>
+      <label class="dim small"><input type="checkbox" id="showPolls"> show polling</label>
+    </div>
+    <div class="activity-body">
+      <ol id="calls"></ol>
+      <div class="exchange">
+        <div class="exchange-head">
+          <button id="copyCurl" disabled>Copy as curl</button>
+          <span class="dim small">curl uses $UNITY_JWT: run <code>source pipeline-onboard.config</code> first</span>
+        </div>
+        <pre id="exchange" class="dim">Select a call to see the full request and response (token redacted).</pre>
+      </div>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
