@@ -8,6 +8,9 @@ namespace Pipeline.Client;
 
 public sealed record Page<T>(IReadOnlyList<T> Items);
 
+/// <summary>The workbench list: {items:[…]} until October 2026, {workbenches:[…]} since.</summary>
+public sealed record WorkbenchList(IReadOnlyList<Workbench>? Items, IReadOnlyList<Workbench>? Workbenches);
+
 /// <summary>An org as the legacy Unity API serves it; <c>GenesisId</c> is the numeric id (ORG_ID).</summary>
 public sealed record Organization(string Id, string? GenesisId, string? Name);
 
@@ -41,6 +44,16 @@ public sealed record WorkbenchReadiness(string WorkbenchId, string Readiness, st
 {
     public bool IsSettled => Readiness == "settled";
 }
+
+/// <summary>GET …/workbenches/{wb}/head (since October 2026, in place of …/readiness).</summary>
+public sealed record WorkbenchHead(string? Branch, string? Head, string? SettledRevision, bool Settling);
+
+/// <summary>A build profile: the platform an environment imports for (since October 2026).</summary>
+public sealed record BuildProfileInfo(string ProfileId, string? Name, string? BuildTarget);
+
+public sealed record ProfileList(IReadOnlyList<BuildProfileInfo>? Profiles, IReadOnlyList<BuildProfileInfo>? Items);
+
+public sealed record EnvironmentList(IReadOnlyList<PipelineEnvironment>? Environments, IReadOnlyList<PipelineEnvironment>? Items);
 
 public sealed record PipelineEnvironment(string EnvironmentId, string? Platform, string? ProfileId, string? WorkbenchId, string? Name);
 
@@ -113,7 +126,15 @@ public sealed record ImportSlot(JsonElement? Manifest, BatchItemError? Error)
 
 public sealed record ImportResults(IReadOnlyList<ImportSlot> Results);
 
-public sealed record Job(string JobId, string? Kind, string? State, bool IsTerminal);
+/// <summary>
+/// A background job. Until October 2026: state + isTerminal. Since then possibly status
+/// (queued | processing | cancelling | cancelled | completed | failed); both are read.
+/// </summary>
+public sealed record Job(string? JobId, string? Kind, string? State, bool IsTerminal, string? Status)
+{
+    [JsonIgnore] public bool IsDone => IsTerminal || Status is "completed" or "failed" or "cancelled";
+    [JsonIgnore] public string? Shown => State ?? Status;
+}
 
 public sealed record ProjectServiceStatus(string? Status, string? Message, ProjectServiceDetail? ProjectService)
 {

@@ -190,31 +190,52 @@ public sealed class PipelineClient : IDisposable
         while (true)
         {
             var job = await GetJobAsync(jobId, ct).ConfigureAwait(false);
-            if (job.State != shown) progress?.Report($"job {jobId[..8]}: {job.State}");
-            shown = job.State;
-            if (job.IsTerminal) return job;
+            if (job.Shown != shown) progress?.Report($"job {jobId[..Math.Min(8, jobId.Length)]}: {job.Shown}");
+            shown = job.Shown;
+            if (job.IsDone) return job;
             if (DateTime.UtcNow > deadline)
-                throw new TimeoutException($"job {jobId} still {job.State} after {budget.TotalSeconds:0}s");
+                throw new TimeoutException($"job {jobId} still {job.Shown} after {budget.TotalSeconds:0}s");
             await Task.Delay(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false);
         }
     }
 
     /// <summary>
-    /// Reads such as asset-guid and source can answer 202 + jobId the first time
-    /// (the project service has to produce the data): wait for the job, then ask again.
+    /// Reads such as asset-guid and source can answer 202 the first time (the project service
+    /// has to produce the data). With a jobId: wait for the job, then ask again. Without one
+    /// (since October 2026 a plain "not yet"): wait a little and ask again, unless the answer
+    /// says it's terminal (e.g. a preview for an asset type that has none).
     /// </summary>
     async Task<(int Status, byte[] Body)> ReadAsync(HttpMethod method, string url, object? body, string accept,
         IProgress<string>? progress, CancellationToken ct)
     {
-        for (var attempt = 0; ; attempt++)
+        var jobWaits = 0;
+        var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(10);
+        while (true)
         {
             var (status, bytes) = await SendAsync(method, url, body, null, accept, TimeSpan.FromSeconds(120), ct)
                 .ConfigureAwait(false);
-            if (status != 202 || attempt >= 3) return (status, bytes);
-            var job = TryJobId(bytes);
-            if (job is null) return (status, bytes);
-            await WaitForJobAsync(job, TimeSpan.FromMinutes(10), progress, ct).ConfigureAwait(false);
+            if (status != 202 || IsTerminal(bytes) || DateTime.UtcNow > deadline) return (status, bytes);
+            if (TryJobId(bytes) is { } job)
+            {
+                if (jobWaits++ >= 3) return (status, bytes);
+                await WaitForJobAsync(job, TimeSpan.FromMinutes(10), progress, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                using (Polling())
+                    await Task.Delay(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false);
+            }
         }
+    }
+
+    static bool IsTerminal(byte[] body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.TryGetProperty("disposition", out var d) && d.GetString() == "terminal";
+        }
+        catch (JsonException) { return false; }
     }
 
     static string? TryJobId(byte[] body)
@@ -320,11 +341,41 @@ public sealed class PipelineClient : IDisposable
     string Wb(string workbenchId) => $"{clientBase}/workbenches/{workbenchId}";
 
     /// <summary>The caller's workbenches (owner-scoped; retired ones excluded).</summary>
-    public async Task<IReadOnlyList<Workbench>> ListWorkbenchesAsync(CancellationToken ct = default) =>
-        (await JsonAsync<Page<Workbench>>(HttpMethod.Get, $"{clientBase}/workbenches", ct: ct).ConfigureAwait(false)).Items;
+    public async Task<IReadOnlyList<Workbench>> ListWorkbenchesAsync(CancellationToken ct = default)
+    {
+        // Until October 2026 the list was {items:[…]} with each workbench's branchName; since then it is
+        // {workbenches:[…]} without branchName. Accept both, and read a missing branch from the workbench.
+        var list = await JsonAsync<WorkbenchList>(HttpMethod.Get, $"{clientBase}/workbenches", ct: ct).ConfigureAwait(false);
+        var items = list.Items ?? list.Workbenches ?? [];
+        var filled = await Task.WhenAll(items.Select(async w =>
+        {
+            if (!string.IsNullOrEmpty(w.BranchName)) return w;
+            try
+            {
+                var details = await GetWorkbenchAsync(w.WorkbenchId, ct).ConfigureAwait(false);
+                return details with { CreatedAt = details.CreatedAt ?? w.CreatedAt };
+            }
+            catch (PipelineApiException) { return w; }   // still listed, just without its branch
+        })).ConfigureAwait(false);
+        return filled;
+    }
 
-    public Task<Workbench> GetWorkbenchAsync(string workbenchId, CancellationToken ct = default) =>
-        JsonAsync<Workbench>(HttpMethod.Get, Wb(workbenchId), timeout: TimeSpan.FromSeconds(90), ct: ct);
+    /// <summary>
+    /// One workbench. Since October 2026 the answer has neither workbenchId nor branchName:
+    /// the id is the one asked for, and the branch is the plain key of its <c>branches</c> map
+    /// (the others are "{branch}/{guid}" working branches).
+    /// </summary>
+    public async Task<Workbench> GetWorkbenchAsync(string workbenchId, CancellationToken ct = default)
+    {
+        var wb = await JsonAsync<Workbench>(HttpMethod.Get, Wb(workbenchId), timeout: TimeSpan.FromSeconds(90), ct: ct)
+            .ConfigureAwait(false);
+        return wb with
+        {
+            WorkbenchId = string.IsNullOrEmpty(wb.WorkbenchId) ? workbenchId : wb.WorkbenchId,
+            BranchName = !string.IsNullOrEmpty(wb.BranchName) ? wb.BranchName
+                : wb.Branches?.Keys.FirstOrDefault(k => !k.Contains('/')) ?? wb.Branches?.Keys.FirstOrDefault(),
+        };
+    }
 
     public Task<Workbench> CreateWorkbenchAsync(string repositoryUrl, string branch, CancellationToken ct = default) =>
         JsonAsync<Workbench>(HttpMethod.Post, $"{clientBase}/workbenches",
@@ -337,8 +388,24 @@ public sealed class PipelineClient : IDisposable
     public Task DeleteWorkbenchAsync(string workbenchId, CancellationToken ct = default) =>
         NoContentAsync(HttpMethod.Delete, Wb(workbenchId), ct: ct);
 
-    public Task<WorkbenchReadiness> GetReadinessAsync(string workbenchId, CancellationToken ct = default) =>
-        JsonAsync<WorkbenchReadiness>(HttpMethod.Get, $"{Wb(workbenchId)}/readiness", ct: ct);
+    /// <summary>
+    /// Where the workbench stands: settled (with the revision reads can use), settling, gone or unknown.
+    /// Since October 2026 that's …/head {branch, head, settledRevision, settling}; …/readiness
+    /// (gone since then) is still tried if …/head has no route.
+    /// </summary>
+    public async Task<WorkbenchReadiness> GetReadinessAsync(string workbenchId, CancellationToken ct = default)
+    {
+        try
+        {
+            var h = await JsonAsync<WorkbenchHead>(HttpMethod.Get, $"{Wb(workbenchId)}/head", ct: ct).ConfigureAwait(false);
+            var readiness = h.Settling ? "settling" : string.IsNullOrEmpty(h.SettledRevision) ? "unknown" : "settled";
+            return new WorkbenchReadiness(workbenchId, readiness, h.Branch, h.SettledRevision, h.Head);
+        }
+        catch (PipelineApiException e) when (e is { Status: 404, Code: "54" })
+        {
+            return await JsonAsync<WorkbenchReadiness>(HttpMethod.Get, $"{Wb(workbenchId)}/readiness", ct: ct).ConfigureAwait(false);
+        }
+    }
 
     /// <summary>
     /// Wait until the workbench has settled (at <paramref name="revision"/>, if given) and
@@ -374,21 +441,78 @@ public sealed class PipelineClient : IDisposable
 
     // ── environments ────────────────────────────────────────────────────────
 
+    // Since October 2026 environments are project-level (…/environments) and bind a build profile
+    // (…/profiles, one per build target) to a workbench; until then they were per workbench
+    // (…/workbenches/{wb}/environments {platform}). The new routes are tried first.
+
+    /// <summary>Platform names this client uses (Windows64…) and the profiles' build targets (win64…).</summary>
+    static readonly (string Platform, string BuildTarget)[] Platforms =
+    [
+        ("Windows64", "win64"), ("Linux64", "linux64"), ("MacOS64", "osxuniversal"),
+        ("iOS", "ios"), ("Android", "android"), ("WebGL", "webgl"),
+    ];
+
+    static string BuildTargetFor(string platform) =>
+        Platforms.FirstOrDefault(p => p.Platform.Equals(platform, StringComparison.OrdinalIgnoreCase)).BuildTarget
+        ?? platform.ToLowerInvariant();
+
+    static string? PlatformFor(string? buildTarget) =>
+        buildTarget is null ? null
+            : Platforms.FirstOrDefault(p => p.BuildTarget.Equals(buildTarget, StringComparison.OrdinalIgnoreCase)).Platform ?? buildTarget;
+
+    public async Task<IReadOnlyList<BuildProfileInfo>> ListProfilesAsync(CancellationToken ct = default)
+    {
+        var list = await JsonAsync<ProfileList>(HttpMethod.Get, $"{clientBase}/profiles", ct: ct).ConfigureAwait(false);
+        return list.Profiles ?? list.Items ?? [];
+    }
+
     /// <summary>
-    /// Environments of this workbench. (The list can include other workbenches'
-    /// environments, so filter; GET …/environments/{id} answers a gateway 404.)
+    /// Environments of this workbench, with their platform. (The list can include other
+    /// workbenches' environments, so filter.)
     /// </summary>
     public async Task<IReadOnlyList<PipelineEnvironment>> ListEnvironmentsAsync(string workbenchId,
         CancellationToken ct = default)
     {
-        var page = await JsonAsync<Page<PipelineEnvironment>>(HttpMethod.Get, $"{Wb(workbenchId)}/environments", ct: ct)
-            .ConfigureAwait(false);
-        return page.Items.Where(e => e.WorkbenchId == workbenchId).ToList();
+        try
+        {
+            var list = await JsonAsync<EnvironmentList>(HttpMethod.Get, $"{clientBase}/environments", ct: ct).ConfigureAwait(false);
+            var envs = (list.Environments ?? list.Items ?? []).Where(e => e.WorkbenchId == workbenchId).ToList();
+            if (envs.Count == 0 || envs.All(e => e.Platform is not null)) return envs;
+            var profiles = (await ListProfilesAsync(ct).ConfigureAwait(false)).ToDictionary(p => p.ProfileId, p => p);
+            return envs.Select(e => e.Platform is not null ? e : e with
+            {
+                Platform = e.ProfileId is { } id && profiles.TryGetValue(id, out var p) ? PlatformFor(p.BuildTarget) : null,
+            }).ToList();
+        }
+        catch (PipelineApiException e) when (e is { Status: 404, Code: "54" })
+        {
+            var page = await JsonAsync<Page<PipelineEnvironment>>(HttpMethod.Get, $"{Wb(workbenchId)}/environments", ct: ct)
+                .ConfigureAwait(false);
+            return page.Items.Where(x => x.WorkbenchId == workbenchId).ToList();
+        }
     }
 
-    public Task<PipelineEnvironment> CreateEnvironmentAsync(string workbenchId, string platform,
-        CancellationToken ct = default) =>
-        JsonAsync<PipelineEnvironment>(HttpMethod.Post, $"{Wb(workbenchId)}/environments", new { platform }, ct: ct);
+    /// <summary>An environment for <paramref name="platform"/> (Windows64…), creating its build profile if needed.</summary>
+    public async Task<PipelineEnvironment> CreateEnvironmentAsync(string workbenchId, string platform,
+        CancellationToken ct = default)
+    {
+        IReadOnlyList<BuildProfileInfo> profiles;
+        try { profiles = await ListProfilesAsync(ct).ConfigureAwait(false); }
+        catch (PipelineApiException e) when (e is { Status: 404, Code: "54" })
+        {
+            return await JsonAsync<PipelineEnvironment>(HttpMethod.Post, $"{Wb(workbenchId)}/environments", new { platform }, ct: ct)
+                .ConfigureAwait(false);
+        }
+
+        var buildTarget = BuildTargetFor(platform);
+        var profile = profiles.FirstOrDefault(p => string.Equals(p.BuildTarget, buildTarget, StringComparison.OrdinalIgnoreCase))
+                      ?? await JsonAsync<BuildProfileInfo>(HttpMethod.Post, $"{clientBase}/profiles",
+                          new { name = $"explorer-{buildTarget}", buildTarget }, ct: ct).ConfigureAwait(false);
+        var env = await JsonAsync<PipelineEnvironment>(HttpMethod.Post, $"{clientBase}/environments",
+            new { profileGuid = profile.ProfileId, workbenchGuid = workbenchId, name = $"explorer-{buildTarget}-{workbenchId[..8]}" },
+            ct: ct).ConfigureAwait(false);
+        return env with { Platform = env.Platform ?? platform, WorkbenchId = env.WorkbenchId ?? workbenchId };
+    }
 
     // ── reads (all pinned to a revision) ────────────────────────────────────
 
@@ -468,6 +592,15 @@ public sealed class PipelineClient : IDisposable
     public async Task<byte[]?> GetPreviewAsync(string workbenchId, string environmentId, string revision,
         string guid, IProgress<string>? progress = null, CancellationToken ct = default)
     {
+        // Since October 2026: GET …/environments/{env}/revisions/{rev}/previews/{guid} (project-level
+        // environment), which answers 202 until the render is done. The POST trigger below is the old route.
+        var url = $"{EnvRev(workbenchId, environmentId, revision)}/previews/{guid}";
+        var (code, bytes) = await ReadAsync(HttpMethod.Get, url, null, "image/*, application/json", progress, ct)
+            .ConfigureAwait(false);
+        if (code == 200 && IsPng(bytes)) return bytes;
+        if (code == 202) return null;   // no image for this asset type (or still rendering after 10 min)
+        if (!IsNoRoute(code, bytes)) throw PipelineApiException.FromResponse("GET", ShortPath(url), code, bytes);
+
         var baseUrl = $"{Wb(workbenchId)}/environments/{environmentId}/revisions/{Uri.EscapeDataString(revision)}/previews";
         var (status, body) = await SendAsync(HttpMethod.Post, baseUrl, new { assetGuid = guid }, null,
             "image/*, application/json", TimeSpan.FromSeconds(120), ct).ConfigureAwait(false);
@@ -484,8 +617,10 @@ public sealed class PipelineClient : IDisposable
 
     // ── imports (an importer's content files, per environment) ──────────────
 
+    // Environments are project-level since October 2026 (until then …/workbenches/{wb}/environments/…).
+    // The workbench id stays in the signatures: the environment is bound to it.
     string EnvRev(string workbenchId, string environmentId, string revision) =>
-        $"{Wb(workbenchId)}/environments/{environmentId}/revisions/{Uri.EscapeDataString(revision)}";
+        $"{clientBase}/environments/{environmentId}/revisions/{Uri.EscapeDataString(revision)}";
 
     /// <summary>
     /// Import one address in an environment and return its slot: the import manifest
@@ -608,7 +743,16 @@ public sealed class PipelineClient : IDisposable
                 if (!missing.Contains(m)) missing.Add(m);
 
         if (missing.Count == 0 && message is null)
-            return Revision(await CommitBatchAsync(workbenchId, staged, null, ct).ConfigureAwait(false));
+        {
+            try
+            {
+                return Revision(await CommitBatchAsync(workbenchId, staged, null, ct).ConfigureAwait(false));
+            }
+            catch (PipelineApiException e) when (e is { Status: 404, Code: "54" })
+            {
+                // …/batch has no route since October 2026: commit through a transaction instead.
+            }
+        }
 
         return await InTransactionAsync(workbenchId, branch, message, async tx =>
         {
