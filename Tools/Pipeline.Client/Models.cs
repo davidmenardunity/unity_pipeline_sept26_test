@@ -66,6 +66,11 @@ public sealed record FileTreeEntry(string Path, bool IsFolder, string? Kind)
 
 public sealed record FileTree(IReadOnlyList<FileTreeEntry> Entries, string? Revision);
 
+// The file-tree response as sent: entries said isFolder: true until October 2026, now type: "folder".
+public sealed record FileTreeEntryResponse(string Path, bool? IsFolder, string? Type, string? Kind);
+
+public sealed record FileTreeResponse(IReadOnlyList<FileTreeEntryResponse>? Entries, string? Revision);
+
 /// <summary>One row of a revision's manifest: an imported asset (Assets/, resolved packages, settings).</summary>
 public sealed record ManifestEntry(string Path, string? AssetGuid, bool IsFolder, string? MetafileHash)
 {
@@ -94,7 +99,7 @@ public sealed record GuidResult(string? AssetGuid, BatchItemError? Error);
 
 public sealed record BatchItemError(string? Code, string? Message);
 
-public sealed record GuidResults(IReadOnlyList<GuidResult> Results, string? Revision);
+public sealed record GuidResults(IReadOnlyList<GuidResult>? Results, string? Revision);
 
 /// <summary>One slot of a batch import answer: the import manifest, or why the address didn't resolve.</summary>
 public sealed record ImportSlot(JsonElement? Manifest, BatchItemError? Error)

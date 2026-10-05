@@ -182,7 +182,7 @@ Authorization: Bearer {{token}}
 Accept: application/json
 Content-Type: application/json
 
-{ "keys": ["{{assetPath}}"] }
+{ "paths": ["{{assetPath}}"] }
 
 ### 5e. Asset facts: path, GUID, hashes, size (no type or importer). Chained: 5d.
 GET {{wb}}/revisions/{{rev}}/assets/{{guid}}

@@ -519,9 +519,15 @@ public sealed class PipelineClient : IDisposable
     string Rev(string workbenchId, string revision) => $"{Wb(workbenchId)}/revisions/{Uri.EscapeDataString(revision)}";
 
     /// <summary>One level of a folder.</summary>
-    public Task<FileTree> GetFileTreeAsync(string workbenchId, string revision, string folder,
-        CancellationToken ct = default) =>
-        JsonAsync<FileTree>(HttpMethod.Get, $"{Rev(workbenchId, revision)}/file-tree/{Segment(folder)}", ct: ct);
+    public async Task<FileTree> GetFileTreeAsync(string workbenchId, string revision, string folder,
+        CancellationToken ct = default)
+    {
+        var tree = await JsonAsync<FileTreeResponse>(HttpMethod.Get,
+            $"{Rev(workbenchId, revision)}/file-tree/{Segment(folder)}", ct: ct).ConfigureAwait(false);
+        var entries = (tree.Entries ?? []).Select(e => new FileTreeEntry(e.Path,
+            e.IsFolder ?? string.Equals(e.Type, "folder", StringComparison.OrdinalIgnoreCase), e.Kind)).ToList();
+        return new FileTree(entries, tree.Revision);
+    }
 
     /// <summary>
     /// Every asset the revision's asset database holds (what the Editor imported,
@@ -558,10 +564,12 @@ public sealed class PipelineClient : IDisposable
         IProgress<string>? progress = null, CancellationToken ct = default)
     {
         var url = $"{Rev(workbenchId, revision)}/asset-guid";
-        var body = EnsureOk("POST", url, await ReadAsync(HttpMethod.Post, url, new { keys = new[] { path } },
+        // The body field was "keys" until October 2026, now "paths" (required). Send both while either may be served.
+        var paths = new[] { path };
+        var body = EnsureOk("POST", url, await ReadAsync(HttpMethod.Post, url, new { paths, keys = paths },
             "application/json", progress, ct).ConfigureAwait(false));
         var results = JsonSerializer.Deserialize<GuidResults>(body, Json);
-        return results?.Results.FirstOrDefault()?.AssetGuid;
+        return results?.Results?.FirstOrDefault()?.AssetGuid;
     }
 
     public Task<AssetInfo> GetAssetAsync(string workbenchId, string revision, string guid,
