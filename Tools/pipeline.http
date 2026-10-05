@@ -58,16 +58,18 @@
 
 
 ###############################################################################
-# 1. Project service (one per branch; idles out after some hours)
+# 1. Project service (one per project; idles out after some hours)
+#    Until October 2026 these were per branch: …/branches/{{branch}}/projectservice/…
+#    Those URLs now answer a gateway 404 (code 54, no route).
 ###############################################################################
 
 ### 1a. Status. "ready" = go. "starting" with projectService.jobStatus Succeeded = actually stopped: start it.
-GET {{internal}}/branches/{{branch}}/projectservice/status
+GET {{internal}}/projectservice/status
 Authorization: Bearer {{token}}
 Accept: application/json
 
 ### 1b. Start. 202 = starting (1–2 min cold), 409 = already starting/running. Poll 1a until "ready".
-POST {{internal}}/branches/{{branch}}/projectservice/start
+POST {{internal}}/projectservice/start
 Authorization: Bearer {{token}}
 Accept: application/json
 Content-Type: application/json
@@ -86,8 +88,8 @@ Accept: application/json
 
 ### 2b. Create a workbench on a branch. Copy "workbenchId" into WORKBENCH_ID in .env.
 # A workbench doesn't pick up later git pushes: create a new one after you push.
-# To switch branches: start the project service for that branch (1b with another
-# BRANCH), then create a workbench on it.
+# To switch branches: create a workbench with another BRANCH (the project service
+# is per project, so 1b once is enough).
 # @name createWorkbench
 POST {{base}}/workbenches
 Authorization: Bearer {{token}}

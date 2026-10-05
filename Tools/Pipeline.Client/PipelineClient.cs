@@ -232,16 +232,40 @@ public sealed class PipelineClient : IDisposable
 
     // ── project service (internal host) ─────────────────────────────────────
 
-    public Task<ProjectServiceStatus> GetProjectServiceStatusAsync(CancellationToken ct = default) =>
-        JsonAsync<ProjectServiceStatus>(HttpMethod.Get,
-            $"{internalBase}/branches/{Uri.EscapeDataString(Config.Branch)}/projectservice/status", ct: ct);
+    // Since October 2026 the project service is addressed per project (…/projects/{p}/projectservice/…);
+    // until then it was per branch (…/branches/{b}/projectservice/…), which now answers a gateway 404
+    // (code 54, no route). Try the project-level route, and fall back while either may be served.
+    string ProjectServiceUrl(string action) => $"{internalBase}/projectservice/{action}";
+    string BranchProjectServiceUrl(string action) =>
+        $"{internalBase}/branches/{Uri.EscapeDataString(Config.Branch)}/projectservice/{action}";
+
+    static bool IsNoRoute(int status, byte[] body) =>
+        status == 404 && PipelineApiException.FromResponse("", "", status, body).Code == "54";
+
+    public async Task<ProjectServiceStatus> GetProjectServiceStatusAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            return await JsonAsync<ProjectServiceStatus>(HttpMethod.Get, ProjectServiceUrl("status"), ct: ct).ConfigureAwait(false);
+        }
+        catch (PipelineApiException e) when (e is { Status: 404, Code: "54" })
+        {
+            return await JsonAsync<ProjectServiceStatus>(HttpMethod.Get, BranchProjectServiceUrl("status"), ct: ct).ConfigureAwait(false);
+        }
+    }
 
     /// <summary>Ask for the project service to start, without waiting. A 409 (already starting or running) is fine.</summary>
     public async Task StartProjectServiceAsync(CancellationToken ct = default)
     {
-        var url = $"{internalBase}/branches/{Uri.EscapeDataString(Config.Branch)}/projectservice/start";
+        var url = ProjectServiceUrl("start");
         var (code, body) = await SendAsync(HttpMethod.Post, url, new { region = Config.Region }, null,
             "application/json", TimeSpan.FromSeconds(60), ct).ConfigureAwait(false);
+        if (IsNoRoute(code, body))
+        {
+            url = BranchProjectServiceUrl("start");
+            (code, body) = await SendAsync(HttpMethod.Post, url, new { region = Config.Region }, null,
+                "application/json", TimeSpan.FromSeconds(60), ct).ConfigureAwait(false);
+        }
         if (code is < 200 or >= 300 && code != 409)
             throw PipelineApiException.FromResponse("POST", ShortPath(url), code, body);
     }

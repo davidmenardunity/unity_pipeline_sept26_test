@@ -1007,6 +1007,7 @@ async function pasteToken() {
 }
 
 $("token").addEventListener("click", pasteToken);
+$("changeToken").addEventListener("click", pasteToken);
 $("reload").addEventListener("click", async () => {
   await call("POST", "/api/config/reload");
   state.wb = null;
