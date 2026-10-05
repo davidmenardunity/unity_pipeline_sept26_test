@@ -67,6 +67,25 @@ var api = app.MapGroup("/api");
 
 api.MapGet("/config", (Pipelines p) => p.Describe());
 
+// A bearer token pasted in the page. Kept in this process's memory only: never written to disk,
+// never sent back (the page only learns its kind and expiry).
+api.MapPost("/token", (Pipelines p, PastedToken body) =>
+{
+    var token = Pipelines.CleanToken(body.Token);
+    if (token.Length == 0) return Results.BadRequest(new { error = "paste a bearer token" });
+    if (TokenInfo.Inspect(token).Kind == "unknown")
+        return Results.BadRequest(new { error = "that doesn't look like a bearer token (a user JWT starts with eyJ, a service account bearer with unity_sa_bt.)" });
+    p.SetToken(token);
+    return Results.Ok(p.Describe());
+});
+
+// Forget the pasted token and go back to the one in the config file, if any.
+api.MapDelete("/token", (Pipelines p) =>
+{
+    p.SetToken(null);
+    return p.Describe();
+});
+
 api.MapPost("/config/reload", (Pipelines p) =>
 {
     p.Reload();
@@ -265,6 +284,7 @@ record ActivityItem(long Id, DateTimeOffset At, string Method, string Path, int 
     string? ErrorCode, string? ErrorDetail, bool IsPoll, string? Exchange, string? Curl);
 record NewEnvironment(string? Platform);
 record Selection(string OrganizationId, string ProjectId);
+record PastedToken(string? Token);
 record ImportRequest(string Address);
 
 sealed class NotConfiguredException(IEnumerable<string> missing)
@@ -278,6 +298,7 @@ sealed class Pipelines
     readonly List<ActivityItem> activity = [];
     long lastActivity;
     PipelineConfig config;
+    string? pastedToken;   // overrides the config file's token while set
 
     public Pipelines(IWebHostEnvironment host)
     {
@@ -304,10 +325,31 @@ sealed class Pipelines
         return null;
     }
 
-    /// <summary>Re-read the config, e.g. after <c>set-token.sh</c> wrote a fresh token.</summary>
+    /// <summary>Re-read the config, e.g. after a fresh token was written to .env. A pasted token still wins.</summary>
     public void Reload()
     {
         config = Load();
+        if (pastedToken is not null) config = config with { Token = pastedToken };
+        DropClients();
+    }
+
+    /// <summary>Use a pasted token (null: back to the config file's). Org/project picks are kept.</summary>
+    public void SetToken(string? token)
+    {
+        pastedToken = string.IsNullOrEmpty(token) ? null : token;
+        config = config with { Token = pastedToken ?? Load().Token };
+        DropClients();
+    }
+
+    /// <summary>Strip whitespace, quotes and a copied "Bearer " prefix.</summary>
+    public static string CleanToken(string? value)
+    {
+        var t = (value ?? "").Trim().Trim('"', '\'').Trim();
+        return t.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? t[7..].Trim() : t;
+    }
+
+    void DropClients()
+    {
         foreach (var key in clients.Keys)
             if (clients.TryRemove(key, out var c)) c.Dispose();
     }
@@ -317,8 +359,7 @@ sealed class Pipelines
     {
         if (organizationId == config.OrganizationId && projectId == config.ProjectId) return;
         config = config with { OrganizationId = organizationId, ProjectId = projectId, WorkbenchId = null, EnvironmentId = null };
-        foreach (var key in clients.Keys)
-            if (clients.TryRemove(key, out var c)) c.Dispose();
+        DropClients();
     }
 
     /// <summary>A client for org-level calls (org details, project list): needs only the token.</summary>
@@ -382,6 +423,7 @@ sealed class Pipelines
             workbenchId = config.WorkbenchId,
             environmentId = config.EnvironmentId,
             token = token is null ? null : new { token.Kind, token.ExpiresAt, token.IsExpired },
+            tokenSource = pastedToken is not null ? "pasted" : token is null ? null : "file",
         };
     }
 }

@@ -57,11 +57,12 @@ const getJson = async (url) => (await call("GET", url)).json();
 const postJson = async (url, body) => (await call("POST", url, body ?? {})).json();
 const enc = encodeURIComponent;
 
-function banner(text, kind = "error") {
+// action: optional { label, onclick } for a button after the text.
+function banner(text, kind = "error", action = null) {
   const b = $("banner");
   b.hidden = !text;
   b.className = "banner" + (kind === "info" ? " info" : "");
-  b.textContent = text || "";
+  b.replaceChildren(text || "", ...(text && action ? [" ", h("button", { onclick: action.onclick }, action.label)] : []));
 }
 
 function describeError(e) {
@@ -77,13 +78,18 @@ const short = (id) => (id ? id.slice(0, 8) : "");
 const fmtBytes = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 
 // In-page stand-in for confirm()/prompt(), which the app's browser pane doesn't support.
-// Resolves to true/false (confirm) or the trimmed text / null (when `value` is given).
-function ask({ title, message, value, placeholder, ok = "OK", danger = false }) {
+// Resolves to true/false (confirm), or (when `value` is given) the trimmed text, "" when OK is pressed
+// on an empty field, or null when cancelled.
+// secret: a password-style field that the browser shouldn't remember or autofill.
+function ask({ title, message, value, placeholder, ok = "OK", danger = false, secret = false }) {
   return new Promise((resolve) => {
-    const input = value !== undefined ? h("input", { value, placeholder: placeholder ?? "", spellcheck: "false" }) : null;
+    const input = value !== undefined
+      ? h("input", { value, placeholder: placeholder ?? "", spellcheck: "false",
+          ...(secret ? { type: "password", autocomplete: "off", "data-1p-ignore": true, "data-lpignore": "true" } : {}) })
+      : null;
     const cancel = () => done(input ? null : false);
     const done = (v) => { overlay.remove(); resolve(v); };
-    const okBtn = h("button", { class: "primary" + (danger ? " danger" : ""), onclick: () => done(input ? input.value.trim() || null : true) }, ok);
+    const okBtn = h("button", { class: "primary" + (danger ? " danger" : ""), onclick: () => done(input ? input.value.trim() : true) }, ok);
     const overlay = h("div", { class: "overlay", onclick: (e) => e.target === overlay && cancel() },
       h("div", { class: "dialog", role: "dialog", "aria-modal": "true", "aria-label": title },
         h("h3", {}, title), message ? h("p", {}, message) : null, input,
@@ -104,16 +110,18 @@ function ask({ title, message, value, placeholder, ok = "OK", danger = false }) 
 async function loadConfig() {
   const c = state.config = await getJson("/api/config");
   const t = $("token");
+  const from = c.tokenSource === "pasted" ? "pasted" : "from .env";
   if (!c.token) { t.textContent = "no token"; t.className = "pill bad"; }
-  else if (c.token.isExpired) { t.textContent = "token expired"; t.className = "pill bad"; }
+  else if (c.token.isExpired) { t.textContent = `token expired (${from})`; t.className = "pill bad"; }
   else {
     const hours = c.token.expiresAt ? Math.round((new Date(c.token.expiresAt) - Date.now()) / 36e5) : null;
-    t.textContent = `${c.token.kind}${hours !== null ? `, ${hours} h left` : ""}`;
+    t.textContent = `${c.token.kind}${hours !== null ? `, ${hours} h left` : ""} · ${from}`;
     t.className = "pill " + (hours !== null && hours < 4 ? "warn" : "ok");
   }
+  t.title = "Paste a bearer token" + (c.tokenSource === "pasted" ? " (or go back to the one in .env)" : "");
   if (c.missing.includes("UNITY_JWT") || c.token?.isExpired) {
-    banner(`${c.token?.isExpired ? "The bearer token has expired." : `No bearer token in ${c.source ?? ".env"}.`}\n` +
-      "Copy the Authorization header from the staging dashboard (see .env.example), put it in UNITY_JWT in .env, then press Reload config.");
+    banner(c.token?.isExpired ? "The bearer token has expired." : "No bearer token yet.", "error",
+      { label: "Paste a token", onclick: pasteToken });
     return "token";
   }
   if (c.missing.length) {
@@ -974,6 +982,31 @@ $("newWorkbench").addEventListener("click", newWorkbench);
 $("deleteWorkbench").addEventListener("click", deleteWorkbench);
 $("addEnvironment").addEventListener("click", addEnvironment);
 $("startService").addEventListener("click", startService);
+// The token goes to this app's server, which keeps it in memory only (never on disk) and uses it
+// for every pipeline call. The page never gets it back.
+async function pasteToken() {
+  const pasted = state.config?.tokenSource === "pasted";
+  const token = await ask({
+    title: "Bearer token",
+    message: "Open the staging Unity Cloud dashboard, then devtools > Network, pick a request to " +
+      "staging.services.api.unity.com and copy its Authorization header (\"Bearer \" is stripped). " +
+      "The app keeps it in memory only, until it restarts." +
+      (pasted ? " Leave the field empty to go back to the token in .env." : ""),
+    value: "", placeholder: "eyJ…", ok: "Use token", secret: true,
+  });
+  if (token === null || (token === "" && !pasted)) return;   // cancelled, or nothing to undo
+  try {
+    if (token === "") await call("DELETE", "/api/token");
+    else await postJson("/api/token", { token });
+  } catch (e) {
+    banner(describeError(e), "error", { label: "Try again", onclick: pasteToken });
+    return;
+  }
+  state.wb = null;
+  boot();
+}
+
+$("token").addEventListener("click", pasteToken);
 $("reload").addEventListener("click", async () => {
   await call("POST", "/api/config/reload");
   state.wb = null;
