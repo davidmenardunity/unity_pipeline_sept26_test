@@ -65,12 +65,22 @@ namespace Unity.Pipeline.Samples.ScenePreview.Importer
             "Unity.TextMeshPro",
         };
 
+        // Engine modules never preserved: they hold no content types, and forcing them into a player
+        // breaks platforms that don't ship them. A WebGL player fails to link with TLSModule
+        // ("wasm-ld: undefined symbol: unitytls"); UnityCurlModule is the native HTTP stack WebGL doesn't use.
+        static readonly HashSet<string> ExcludedAssemblies = new()
+        {
+            "UnityEngine.TLSModule",
+            "UnityEngine.UnityCurlModule",
+        };
+
         public static void Generate(string outputPath)
         {
             var engineAssemblyNames = AppDomain.CurrentDomain.GetAssemblies()
                 .Select(a => a.GetName().Name)
                 .Where(name => !name.EndsWith(".Editor")
-                    && EngineAssemblyPrefixes.Any(prefix => name.StartsWith(prefix)))
+                    && EngineAssemblyPrefixes.Any(prefix => name.StartsWith(prefix))
+                    && !ExcludedAssemblies.Contains(name))
                 .Distinct()
                 .OrderBy(name => name, StringComparer.Ordinal);
 

@@ -14,9 +14,12 @@ namespace Unity.Pipeline.Samples.ScenePreview
     // automatically when the scene loads, so the scene needs no change.
     public class PreviewFileDrop : MonoBehaviour
     {
-        /// <summary>True where dropping files on the window works (a Windows standalone player).</summary>
+        /// <summary>
+        /// True where a .ca can be dropped on the player: a Windows standalone player (handled here), or a
+        /// WebGL player whose host page handles the drop (it calls PreviewClient.PreviewArchiveFromUrl).
+        /// </summary>
         public static bool Supported =>
-#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+#if (UNITY_STANDALONE_WIN || UNITY_WEBGL) && !UNITY_EDITOR
             true;
 #else
             false;

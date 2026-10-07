@@ -67,7 +67,6 @@
   <assembly fullname="UnityEngine.StreamingModule" preserve="all"/>
   <assembly fullname="UnityEngine.SubstanceModule" preserve="all"/>
   <assembly fullname="UnityEngine.SubsystemsModule" preserve="all"/>
-  <assembly fullname="UnityEngine.TLSModule" preserve="all"/>
   <assembly fullname="UnityEngine.TerrainModule" preserve="all"/>
   <assembly fullname="UnityEngine.TerrainPhysicsModule" preserve="all"/>
   <assembly fullname="UnityEngine.TestRunner" preserve="all"/>
@@ -84,7 +83,6 @@
   <assembly fullname="UnityEngine.UnityAnalyticsModule" preserve="all"/>
   <assembly fullname="UnityEngine.UnityConnectModule" preserve="all"/>
   <assembly fullname="UnityEngine.UnityConsentModule" preserve="all"/>
-  <assembly fullname="UnityEngine.UnityCurlModule" preserve="all"/>
   <assembly fullname="UnityEngine.UnityWebRequestAssetBundleModule" preserve="all"/>
   <assembly fullname="UnityEngine.UnityWebRequestAudioModule" preserve="all"/>
   <assembly fullname="UnityEngine.UnityWebRequestModule" preserve="all"/>

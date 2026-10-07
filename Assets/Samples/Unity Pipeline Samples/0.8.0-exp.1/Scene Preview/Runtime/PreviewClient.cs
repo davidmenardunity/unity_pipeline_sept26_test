@@ -81,6 +81,47 @@ namespace Unity.Pipeline.Samples.ScenePreview
             RequestPreview("local");
         }
 
+        /// <summary>
+        /// Download a content archive (.ca) from a URL and preview it. For hosts that hand the player an
+        /// archive, e.g. a web page embedding a WebGL player: call it with SendMessage("PreviewRig",
+        /// "PreviewArchiveFromUrl", url). Blob URLs from a dropped file work too.
+        /// </summary>
+        public void PreviewArchiveFromUrl(string url)
+        {
+            if (m_Current != null)
+                StopCoroutine(m_Current);
+            m_Current = StartCoroutine(DownloadRoutine(url));
+        }
+
+        IEnumerator DownloadRoutine(string url)
+        {
+            var dest = m_Loader.AcquireSlot();
+            Status = "downloading…";
+            using var req = UnityEngine.Networking.UnityWebRequest.Get(url);
+            // Pipeline Explorer only answers its own pages; this header is how they identify themselves.
+            if (!url.StartsWith("blob:", StringComparison.Ordinal))
+                req.SetRequestHeader("X-Pipeline-Explorer", "1");
+            yield return req.SendWebRequest();
+            if (req.result != UnityEngine.Networking.UnityWebRequest.Result.Success)
+            {
+                Finish($"download failed: {req.responseCode} {req.error}");
+                yield break;
+            }
+            try
+            {
+                File.WriteAllBytes(dest, req.downloadHandler.data);
+            }
+            catch (Exception e)
+            {
+                Finish($"couldn't store the archive: {e.Message}");
+                yield break;
+            }
+            Status = null;
+            Debug.Log($"[PreviewClient] loading {req.downloadHandler.data.Length} bytes from {url}");
+            m_Loader.PrepareAndSwap();
+            m_Current = null;
+        }
+
         /// <summary>Request, download, and preview the content archive for the given asset GUID.</summary>
         public void RequestPreview(string assetGuid)
         {
