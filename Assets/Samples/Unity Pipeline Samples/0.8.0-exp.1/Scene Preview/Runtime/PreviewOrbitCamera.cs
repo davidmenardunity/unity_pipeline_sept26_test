@@ -46,6 +46,80 @@ namespace Unity.Pipeline.Samples.ScenePreview
             Apply();
         }
 
+#if ENABLE_INPUT_SYSTEM
+        // Input System (the project's active input handling). The legacy UnityEngine.Input branch below
+        // throws an InvalidOperationException every frame when only the Input System is enabled.
+        bool HandleTouch()
+        {
+            var screen = UnityEngine.InputSystem.Touchscreen.current;
+            if (screen == null)
+                return false;
+
+            UnityEngine.InputSystem.Controls.TouchControl first = null, second = null;
+            var active = 0;
+            foreach (var touch in screen.touches)
+            {
+                if (!touch.isInProgress)
+                    continue;
+                if (active == 0) first = touch;
+                else if (active == 1) second = touch;
+                active++;
+            }
+
+            if (active == 1)
+            {
+                var delta = first.delta.ReadValue();
+                m_Yaw += delta.x * m_OrbitSpeed;
+                m_Pitch -= delta.y * m_OrbitSpeed;
+                m_Pitch = Mathf.Clamp(m_Pitch, m_MinPitch, m_MaxPitch);
+                return true;
+            }
+
+            if (active == 2)
+            {
+                float pinch = (first.position.ReadValue() - second.position.ReadValue()).magnitude;
+                if (first.press.wasPressedThisFrame || second.press.wasPressedThisFrame)
+                    m_LastPinchDistance = pinch;
+                Zoom((m_LastPinchDistance - pinch) * m_PinchZoomSpeed);
+                m_LastPinchDistance = pinch;
+                return true;
+            }
+
+            return false;
+        }
+
+        bool HandleMouse()
+        {
+            var mouse = UnityEngine.InputSystem.Mouse.current;
+            if (mouse == null)
+                return false;
+            bool interacted = false;
+
+            Vector3 position = mouse.position.ReadValue();
+            if (mouse.leftButton.wasPressedThisFrame)
+                m_LastMousePosition = position;
+            if (mouse.leftButton.isPressed)
+            {
+                var delta = position - m_LastMousePosition;
+                m_LastMousePosition = position;
+                m_Yaw += delta.x * m_OrbitSpeed;
+                m_Pitch -= delta.y * m_OrbitSpeed;
+                m_Pitch = Mathf.Clamp(m_Pitch, m_MinPitch, m_MaxPitch);
+                interacted = true;
+            }
+
+            // The Input System reports scroll in the platform's units (120 per wheel notch on Windows);
+            // the legacy Input.mouseScrollDelta was one per notch.
+            float scroll = mouse.scroll.ReadValue().y / 120f;
+            if (!Mathf.Approximately(scroll, 0f))
+            {
+                Zoom(-scroll * m_ScrollZoomSpeed);
+                interacted = true;
+            }
+
+            return interacted;
+        }
+#else
         bool HandleTouch()
         {
             if (Input.touchCount == 1)
@@ -98,6 +172,7 @@ namespace Unity.Pipeline.Samples.ScenePreview
 
             return interacted;
         }
+#endif
 
         void Zoom(float amount)
             => m_Distance = Mathf.Clamp(m_Distance + amount, m_MinDistance, m_MaxDistance);

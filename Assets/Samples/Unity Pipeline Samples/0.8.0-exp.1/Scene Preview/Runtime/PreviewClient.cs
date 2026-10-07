@@ -55,7 +55,30 @@ namespace Unity.Pipeline.Samples.ScenePreview
             m_Session = GetComponent<PreviewSession>();
             // -previewLocalArchive <path>: load that .ca for every request, with no network.
             if (CommandLine.Get("-previewLocalArchive") is { Length: > 0 } local)
+            {
                 m_LocalArchivePath = local;
+                m_LoadLocalOnStart = true;
+            }
+        }
+
+        bool m_LoadLocalOnStart;
+
+        // A local archive given on the command line is shown straight away: the archive names its own
+        // content, so no asset needs picking (and no network or sign-in is involved).
+        void Start()
+        {
+            if (m_LoadLocalOnStart)
+                RequestPreview("local");
+        }
+
+        /// <summary>
+        /// Preview a content archive (.ca) on disk, e.g. one dropped on the window (PreviewFileDrop). From
+        /// then on, requests load local archives instead of asking the pipeline.
+        /// </summary>
+        public void PreviewArchive(string path)
+        {
+            m_LocalArchivePath = path;
+            RequestPreview("local");
         }
 
         /// <summary>Request, download, and preview the content archive for the given asset GUID.</summary>

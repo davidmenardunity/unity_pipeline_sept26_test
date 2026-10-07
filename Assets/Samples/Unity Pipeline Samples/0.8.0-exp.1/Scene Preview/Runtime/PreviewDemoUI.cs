@@ -352,7 +352,9 @@ namespace Unity.Pipeline.Samples.ScenePreview
                     case PreviewSession.State.ResolvingRevision: return "Resolving revision…";
                     case PreviewSession.State.PreparingEnvironment: return $"Preparing the environment… {Detail}";
                     case PreviewSession.State.DiscoveringAssets: return $"Discovering assets… {Detail}";
-                    case PreviewSession.State.Failed: return $"Setup failed: {m_Session.LastError}";
+                    case PreviewSession.State.Failed:
+                        return $"Setup failed: {m_Session.LastError}" +
+                               (PreviewFileDrop.Supported ? " · Drop a .ca file on this window to preview it" : "");
                 }
             }
 
@@ -364,9 +366,15 @@ namespace Unity.Pipeline.Samples.ScenePreview
                 return $"Loading {m_PendingName ?? "preview"}…";
             if (m_FailureText != null)
                 return m_FailureText;
+            if (m_PendingName == null && m_Loader.LastOutcome == PreviewLoader.Outcome.Failed)
+                return $"Couldn't preview the dropped archive: {m_Loader.LastError}";
             if (m_ShownName != null && m_Loader.HasPreview)
                 return $"Showing: {m_ShownName}";
-            return "Browse assets to choose one to preview";
+            if (m_Loader.HasPreview)
+                return "Showing a dropped archive. Drop another .ca to replace it";
+            return PreviewFileDrop.Supported
+                ? "Drop a .ca file on this window, or browse assets to choose one"
+                : "Browse assets to choose one to preview";
         }
     }
 }

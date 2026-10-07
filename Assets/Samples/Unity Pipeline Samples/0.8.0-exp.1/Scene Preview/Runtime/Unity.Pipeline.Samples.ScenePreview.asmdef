@@ -1,7 +1,9 @@
 {
     "name": "Unity.Pipeline.Samples.ScenePreview",
     "rootNamespace": "Unity.Pipeline.Samples.ScenePreview",
-    "references": [],
+    "references": [
+        "Unity.InputSystem"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": true,
