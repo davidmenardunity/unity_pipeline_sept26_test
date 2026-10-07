@@ -391,15 +391,16 @@ public sealed class PipelineClient : IDisposable
     /// <summary>
     /// Where the workbench stands: settled (with the revision reads can use), settling, gone or unknown.
     /// Since October 2026 that's …/head {branch, head, settledRevision, settling}; …/readiness
-    /// (gone since then) is still tried if …/head has no route.
+    /// (gone since then) is still tried if …/head has no route. head's own fields changed later the same
+    /// month (validatedRevision/validating); see <see cref="WorkbenchHead"/>.
     /// </summary>
     public async Task<WorkbenchReadiness> GetReadinessAsync(string workbenchId, CancellationToken ct = default)
     {
         try
         {
             var h = await JsonAsync<WorkbenchHead>(HttpMethod.Get, $"{Wb(workbenchId)}/head", ct: ct).ConfigureAwait(false);
-            var readiness = h.Settling ? "settling" : string.IsNullOrEmpty(h.SettledRevision) ? "unknown" : "settled";
-            return new WorkbenchReadiness(workbenchId, readiness, h.Branch, h.SettledRevision, h.Head);
+            var readiness = h.Busy ? "settling" : string.IsNullOrEmpty(h.Revision) ? "unknown" : "settled";
+            return new WorkbenchReadiness(workbenchId, readiness, h.Branch, h.Revision, h.Head);
         }
         catch (PipelineApiException e) when (e is { Status: 404, Code: "54" })
         {
@@ -508,9 +509,32 @@ public sealed class PipelineClient : IDisposable
         var profile = profiles.FirstOrDefault(p => string.Equals(p.BuildTarget, buildTarget, StringComparison.OrdinalIgnoreCase))
                       ?? await JsonAsync<BuildProfileInfo>(HttpMethod.Post, $"{clientBase}/profiles",
                           new { name = $"explorer-{buildTarget}", buildTarget }, ct: ct).ConfigureAwait(false);
-        var env = await JsonAsync<PipelineEnvironment>(HttpMethod.Post, $"{clientBase}/environments",
-            new { profileGuid = profile.ProfileId, workbenchGuid = workbenchId, name = $"explorer-{buildTarget}-{workbenchId[..8]}" },
-            ct: ct).ConfigureAwait(false);
+        // The project-level create requires "platform" (400 "not well formed: Platform" without it). Its
+        // spelling isn't documented: try the platform name (Windows64, as the per-workbench route took),
+        // then the profile's build target (win64). The ids go under both spellings seen so far.
+        PipelineEnvironment? env = null;
+        PipelineApiException? rejected = null;
+        foreach (var value in new[] { platform, buildTarget }.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                env = await JsonAsync<PipelineEnvironment>(HttpMethod.Post, $"{clientBase}/environments", new
+                {
+                    platform = value,
+                    workbenchId,
+                    workbenchGuid = workbenchId,
+                    profileId = profile.ProfileId,
+                    profileGuid = profile.ProfileId,
+                    name = $"explorer-{buildTarget}-{workbenchId[..8]}",
+                }, ct: ct).ConfigureAwait(false);
+                break;
+            }
+            catch (PipelineApiException e) when (e.Status == 400)
+            {
+                rejected = e;
+            }
+        }
+        if (env is null) throw rejected!;
         return env with { Platform = env.Platform ?? platform, WorkbenchId = env.WorkbenchId ?? workbenchId };
     }
 
@@ -641,18 +665,38 @@ public sealed class PipelineClient : IDisposable
         string address, IProgress<string>? progress = null, CancellationToken ct = default)
     {
         var url = $"{EnvRev(workbenchId, environmentId, revision)}/imports";
-        var body = EnsureOk("POST", url, await ReadAsync(HttpMethod.Post, url, new { addresses = new[] { address } },
+        // The body field was "addresses" until October 2026, now "importAddresses" (required). Send both.
+        var addresses = new[] { address };
+        var body = EnsureOk("POST", url, await ReadAsync(HttpMethod.Post, url, new { importAddresses = addresses, addresses },
             "application/json", progress, ct).ConfigureAwait(false));
-        return JsonSerializer.Deserialize<ImportResults>(body, Json)?.Results.FirstOrDefault()
-               ?? throw new PipelineApiException("POST", ShortPath(url), 200, null, "no result slot in the answer", null, false);
+        var text = System.Text.Encoding.UTF8.GetString(body);
+        return JsonSerializer.Deserialize<ImportResults>(body, Json)?.Results?.FirstOrDefault()
+               ?? throw new PipelineApiException("POST", ShortPath(url), 200, null,
+                   $"no result slot in the answer: {text[..Math.Min(300, text.Length)]}", null, false);
     }
 
     /// <summary>One artifact of an import, by the name its manifest lists.</summary>
     public async Task<byte[]> GetImportArtifactAsync(string workbenchId, string environmentId, string revision,
         string address, string name, IProgress<string>? progress = null, CancellationToken ct = default)
     {
-        var url = $"{EnvRev(workbenchId, environmentId, revision)}/imports/{Segment(address)}/{Segment(name)}";
-        return EnsureOk("GET", url, await ReadAsync(HttpMethod.Get, url, null, "*/*", progress, ct).ConfigureAwait(false));
+        // The main import result's artifact has an empty name, which can't be a path segment: name it in
+        // the query string instead (?artifactName=), as Project Service serves it. Named artifacts use the
+        // path form, falling back to the query form when the path has no route.
+        var import = $"{EnvRev(workbenchId, environmentId, revision)}/imports/{Segment(address)}";
+        var byQuery = $"{import}?artifactName={Uri.EscapeDataString(name)}";
+        if (string.IsNullOrEmpty(name))
+        {
+            // ?artifactName= (empty) answers the import manifest again, so ask for "." (the other spelling
+            // Project Service gives the main artifact's name).
+            var main = $"{import}?artifactName=.";
+            return EnsureOk("GET", main, await ReadAsync(HttpMethod.Get, main, null, "*/*", progress, ct).ConfigureAwait(false));
+        }
+
+        var byPath = $"{import}/{Segment(name)}";
+        var answer = await ReadAsync(HttpMethod.Get, byPath, null, "*/*", progress, ct).ConfigureAwait(false);
+        if (IsNoRoute(answer.Status, answer.Body))
+            return EnsureOk("GET", byQuery, await ReadAsync(HttpMethod.Get, byQuery, null, "*/*", progress, ct).ConfigureAwait(false));
+        return EnsureOk("GET", byPath, answer);
     }
 
     // ── writes ──────────────────────────────────────────────────────────────

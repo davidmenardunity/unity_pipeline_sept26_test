@@ -33,7 +33,8 @@ public sealed record Workbench(
     WorkbenchValidation? Validation,
     bool? DefaultHeadValidated);
 
-public sealed record WorkbenchBranch(string? Head, string? TransactionId, string? VerifiedRevision);
+/// <summary>One entry of a workbench's branches map; verifiedRevision is called validatedRevision since October 2026.</summary>
+public sealed record WorkbenchBranch(string? Head, string? TransactionId, string? VerifiedRevision, string? ValidatedRevision = null);
 
 public sealed record WorkbenchValidation(string? Status, ValidationError? Error, ValidationError? PreviousError);
 
@@ -46,7 +47,16 @@ public sealed record WorkbenchReadiness(string WorkbenchId, string Readiness, st
 }
 
 /// <summary>GET …/workbenches/{wb}/head (since October 2026, in place of …/readiness).</summary>
-public sealed record WorkbenchHead(string? Branch, string? Head, string? SettledRevision, bool Settling);
+/// <remarks>
+/// Its fields changed again in October 2026: settledRevision/settling became
+/// validatedRevision/validating. Both pairs are read.
+/// </remarks>
+public sealed record WorkbenchHead(string? Branch, string? Head, string? SettledRevision, bool Settling,
+    string? ValidatedRevision = null, bool Validating = false)
+{
+    [JsonIgnore] public string? Revision => !string.IsNullOrEmpty(ValidatedRevision) ? ValidatedRevision : SettledRevision;
+    [JsonIgnore] public bool Busy => Settling || Validating;
+}
 
 /// <summary>A build profile: the platform an environment imports for (since October 2026).</summary>
 public sealed record BuildProfileInfo(string ProfileId, string? Name, string? BuildTarget);
@@ -129,7 +139,7 @@ public sealed record ImportSlot(JsonElement? Manifest, BatchItemError? Error)
     }
 }
 
-public sealed record ImportResults(IReadOnlyList<ImportSlot> Results);
+public sealed record ImportResults(IReadOnlyList<ImportSlot>? Results);
 
 /// <summary>
 /// A background job. Until October 2026: state + isTerminal. Since then possibly status

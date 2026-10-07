@@ -110,7 +110,7 @@ function ask({ title, message, value, placeholder, ok = "OK", danger = false, se
 async function loadConfig() {
   const c = state.config = await getJson("/api/config");
   const t = $("token");
-  const from = c.tokenSource === "pasted" ? "pasted" : "from .env";
+  const from = c.tokenSource === "pasted" ? "saved in the app" : "from .env";
   if (!c.token) { t.textContent = "no token"; t.className = "pill bad"; }
   else if (c.token.isExpired) { t.textContent = `token expired (${from})`; t.className = "pill bad"; }
   else {
@@ -118,7 +118,7 @@ async function loadConfig() {
     t.textContent = `${c.token.kind}${hours !== null ? `, ${hours} h left` : ""} · ${from}`;
     t.className = "pill " + (hours !== null && hours < 4 ? "warn" : "ok");
   }
-  t.title = "Paste a bearer token" + (c.tokenSource === "pasted" ? " (or go back to the one in .env)" : "");
+  t.title = "Paste a bearer token" + (c.tokenSource === "pasted" ? " (or forget the saved one and use .env)" : "");
   if (c.missing.includes("UNITY_JWT") || c.token?.isExpired) {
     banner(c.token?.isExpired ? "The bearer token has expired." : "No bearer token yet.", "error",
       { label: "Paste a token", onclick: pasteToken });
@@ -806,7 +806,9 @@ const artifacts = {
       }
       const list = h("ul", { class: "artifact-list" }, ...r.artifacts.map((name) => {
         const out = h("div");
-        const li = h("li", {}, h("button", { onclick: () => fetchArtifact(base, address, name, out) }, "Fetch"), name);
+        // An empty name is the importer's main output (the imported object itself).
+        const label = name || h("span", { class: "dim" }, "(main import result)");
+        const li = h("li", {}, h("button", { onclick: () => fetchArtifact(base, address, name, out) }, "Fetch"), label);
         return h("div", {}, li, out);
       }));
       body.replaceChildren(
@@ -821,7 +823,11 @@ async function fetchArtifact(base, address, name, out) {
   out.replaceChildren(h("span", { class: "dim small" }, "fetching…"));
   try {
     const res = await call("GET", `${base}/artifact?address=${enc(address)}&name=${enc(name)}`);
-    await renderBytes(res, name.split("/").pop(), out);
+    // Name the saved file after the asset: an artifact called ".ca" would be saved as plain "ca"
+    // (browsers drop a leading dot), and the main import result has no name at all.
+    const asset = (state.selected?.path || "").split("/").pop().replace(/\.[^.]+$/, "") || address.replace(/[:+]/g, "_");
+    const file = !name ? `${asset}.bin` : name.startsWith(".") ? `${asset}${name}` : name.split("/").pop();
+    await renderBytes(res, file, out);
   } catch (e) {
     out.replaceChildren(h("pre", { class: "small" }, describeError(e)));
   }
@@ -982,16 +988,16 @@ $("newWorkbench").addEventListener("click", newWorkbench);
 $("deleteWorkbench").addEventListener("click", deleteWorkbench);
 $("addEnvironment").addEventListener("click", addEnvironment);
 $("startService").addEventListener("click", startService);
-// The token goes to this app's server, which keeps it in memory only (never on disk) and uses it
-// for every pipeline call. The page never gets it back.
+// The token goes to this app's server, which uses it for every pipeline call and saves it encrypted
+// for this Windows user (outside the repo), so it's still there after a restart. The page never gets it back.
 async function pasteToken() {
   const pasted = state.config?.tokenSource === "pasted";
   const token = await ask({
     title: "Bearer token",
     message: "Open the staging Unity Cloud dashboard, then devtools > Network, pick a request to " +
       "staging.services.api.unity.com and copy its Authorization header (\"Bearer \" is stripped). " +
-      "The app keeps it in memory only, until it restarts." +
-      (pasted ? " Leave the field empty to go back to the token in .env." : ""),
+      "The app saves it encrypted for your Windows account, outside the repo, so it's still there next time." +
+      (pasted ? " Leave the field empty to forget the saved token and use the one in .env." : ""),
     value: "", placeholder: "eyJ…", ok: "Use token", secret: true,
   });
   if (token === null || (token === "" && !pasted)) return;   // cancelled, or nothing to undo

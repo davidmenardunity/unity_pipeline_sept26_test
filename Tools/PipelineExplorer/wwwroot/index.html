@@ -18,7 +18,7 @@
       <select id="projectSel"></select>
     </label>
     <button id="token" class="pill" title="Paste a bearer token">no token</button>
-    <button id="changeToken" title="Paste a new bearer token (kept in memory only)">Bearer token…</button>
+    <button id="changeToken" title="Paste a new bearer token (saved encrypted for your Windows account)">Bearer token…</button>
     <span class="grow"></span>
     <span id="service" class="pill">project service …</span>
     <button id="startService">Start service</button>
@@ -42,7 +42,7 @@
       <select id="environment"></select>
     </label>
     <select id="platform">
-      <option>Windows64</option><option>Linux64</option><option>MacOS64</option><option>iOS</option><option>Android</option>
+      <option>Windows64</option><option>Linux64</option><option>MacOS64</option><option>iOS</option><option>Android</option><option>WebGL</option>
     </select>
     <button id="addEnvironment">Add</button>
   </section>
@@ -86,7 +86,7 @@
             <option value="G">Primary import (G:)</option>
             <option value="T">Importer type (T:)</option>
           </select>
-          <input id="importerType" placeholder="UnityEditor.TextureImporter" hidden>
+          <input id="importerType" placeholder="Unity.Pipeline.Samples.ScenePreview.Importer.PreviewContentImporter" title="Full type name of the importer to run, namespace included. Empty: the Scene Preview content-archive importer." hidden>
           <button data-artifact="imports">Content files</button>
         </div>
         <div id="results"></div>

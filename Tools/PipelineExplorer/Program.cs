@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
+using Microsoft.AspNetCore.DataProtection;
 using Pipeline.Client;
 
 // Pipeline Explorer: a small local web app for trying the Unity Pipeline APIs.
@@ -11,6 +12,7 @@ using Pipeline.Client;
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(builder.Configuration["urls"] ?? "http://127.0.0.1:5280");
 builder.Services.AddSingleton<Pipelines>();
+builder.Services.AddDataProtection().SetApplicationName("PipelineExplorer");
 // Dropped files go through this server: allow assets bigger than the 30 MB default.
 const long MaxUpload = 512L * 1024 * 1024;
 builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = MaxUpload);
@@ -254,9 +256,11 @@ envRev.MapPost("/imports", async (Pipelines p, string wb, string env, string rev
     return new { address = body.Address, error = slot.Error, artifacts = slot.ArtifactNames(), manifest = slot.Manifest };
 });
 
-envRev.MapGet("/imports/artifact", async (Pipelines p, string wb, string env, string rev, string address, string name,
+// name may be empty: the main import result's artifact has no name.
+envRev.MapGet("/imports/artifact", async (Pipelines p, string wb, string env, string rev, string address, string? name,
     CancellationToken ct) =>
-    Bytes(await p.Default.GetImportArtifactAsync(wb, env, rev, address, name, null, ct), Path.GetFileName(name)));
+    Bytes(await p.Default.GetImportArtifactAsync(wb, env, rev, address, name ?? "", null, ct),
+        string.IsNullOrEmpty(name) ? $"{address.Replace(':', '_').Replace('+', '_')}.bin" : Path.GetFileName(name)));
 
 // ── activity: every pipeline call the server made ───────────────────────────
 
@@ -299,11 +303,53 @@ sealed class Pipelines
     long lastActivity;
     PipelineConfig config;
     string? pastedToken;   // overrides the config file's token while set
+    readonly IDataProtector protector;
+    readonly ILogger<Pipelines> log;
 
-    public Pipelines(IWebHostEnvironment host)
+    // A pasted token is kept between runs, encrypted with ASP.NET Core data protection (its keys
+    // are protected by Windows for the current user), outside the repo.
+    static readonly string SavedTokenPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PipelineExplorer", "token.dat");
+
+    public Pipelines(IWebHostEnvironment host, IDataProtectionProvider dataProtection, ILogger<Pipelines> log)
     {
         this.host = host;
+        this.log = log;
+        protector = dataProtection.CreateProtector("PipelineExplorer.BearerToken");
         config = Load();
+        pastedToken = ReadSavedToken();
+        if (pastedToken is not null) config = config with { Token = pastedToken };
+    }
+
+    string? ReadSavedToken()
+    {
+        try
+        {
+            return File.Exists(SavedTokenPath) ? protector.Unprotect(File.ReadAllText(SavedTokenPath)) : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {
+            log.LogWarning("Couldn't read the saved bearer token ({Message}); paste it again.", e.Message);
+            return null;
+        }
+    }
+
+    void SaveToken(string? token)
+    {
+        try
+        {
+            if (token is null)
+            {
+                File.Delete(SavedTokenPath);
+                return;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(SavedTokenPath)!);
+            File.WriteAllText(SavedTokenPath, protector.Protect(token));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            log.LogWarning("Couldn't save the bearer token ({Message}); it's used until the app stops.", e.Message);
+        }
     }
 
     // The env var wins, then the .env next to pipeline.http, then the onboarding
@@ -333,10 +379,14 @@ sealed class Pipelines
         DropClients();
     }
 
-    /// <summary>Use a pasted token (null: back to the config file's). Org/project picks are kept.</summary>
+    /// <summary>
+    /// Use a pasted token, and keep it for the next runs (null: forget it and go back to the config
+    /// file's). Org/project picks are kept.
+    /// </summary>
     public void SetToken(string? token)
     {
         pastedToken = string.IsNullOrEmpty(token) ? null : token;
+        SaveToken(pastedToken);
         config = config with { Token = pastedToken ?? Load().Token };
         DropClients();
     }
