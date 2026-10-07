@@ -1023,6 +1023,52 @@ $("showMeta").addEventListener("change", toggleMeta);
 $("showPolls").addEventListener("change", renderCalls);
 $("importMode").addEventListener("change", () => ($("importerType").hidden = $("importMode").value !== "T"));
 $("copyCurl").addEventListener("click", () => navigator.clipboard.writeText(state.selectedCall?.curl ?? ""));
+// ── Scene Preview player (WebGL, embedded) ──────────────────────────────────
+// One button: the server finds or creates the workbench's WebGL environment, has the pipeline build
+// the asset's content archive (.ca) there, and answers the URL to download it from; the embedded
+// player (player.html) then downloads and shows it.
+
+let playerReady = false;
+const playerQueue = [];
+
+addEventListener("message", (e) => {
+  if (e.origin !== location.origin || e.data?.type !== "player-ready") return;
+  playerReady = true;
+  playerQueue.splice(0).forEach(sendToPlayer);
+});
+
+function showPlayer() {
+  const pane = $("playerPane");
+  if (!pane.hidden) return;
+  pane.hidden = false;
+  $("player").src = "player.html";   // loaded on first use: the player is a big download
+}
+
+function sendToPlayer(url) {
+  if (!playerReady) { playerQueue.push(url); return; }
+  $("player").contentWindow.postMessage({ type: "load", url }, location.origin);
+}
+
+function previewInPlayer() {
+  if (!state.selected) return;
+  const name = state.selected.path.split("/").pop();
+  showPlayer();
+  card(`Preview in player · ${name}`, async (body) => {
+    const guid = needGuid();
+    body.textContent = "Having the pipeline build a WebGL content archive for this asset. The first one for an asset, " +
+      "or in a new environment, can take several minutes…";
+    const r = await postJson(`/api/workbenches/${state.wb}/revisions/${enc(state.revision)}/player-archive`,
+      { guid, platform: "WebGL" });
+    body.replaceChildren(
+      h("div", {}, `Sent ${name}'s ${r.artifact} from the ${r.platform} environment ${short(r.environmentId)} to the player.`),
+      h("details", {}, h("summary", { class: "dim small" }, "Steps"), h("pre", {}, r.steps.join("\n"))));
+    sendToPlayer(r.url);
+    if (!state.env || ![...$("environment").options].some((o) => o.value === r.environmentId))
+      loadEnvironments(state.env);   // a WebGL environment may have just been created
+  });
+}
+
+$("previewInPlayer").addEventListener("click", previewInPlayer);
 for (const btn of document.querySelectorAll("[data-artifact]"))
   btn.addEventListener("click", () => state.selected && artifacts[btn.dataset.artifact]());
 

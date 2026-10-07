@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scene Preview player</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #1d2129; color: #c9ced6; font: 13px/1.4 system-ui, "Segoe UI", sans-serif; }
+    #unity-canvas { width: 100%; height: 100%; display: block; background: #1d2129; }
+    .overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px; }
+    #drop { display: none; border: 3px dashed #6ea0ff; background: rgb(30 40 60 / .65); color: #fff; font-size: 18px; }
+  </style>
+</head>
+<body>
+  <canvas id="unity-canvas" tabindex="-1"></canvas>
+  <div id="msg" class="overlay">Loading the player…</div>
+  <div id="drop" class="overlay">Drop a .ca to preview it</div>
+  <script>
+    // Hosts the Scene Preview WebGL player inside Pipeline Explorer. The app sends
+    // {type: "load", url} (same origin only); a .ca dropped here is loaded through a blob URL.
+    // Both end in PreviewClient.PreviewArchiveFromUrl on the PreviewRig.
+    "use strict";
+    const msg = document.getElementById("msg");
+    const drop = document.getElementById("drop");
+    let unity = null;
+    const queue = [];
+
+    function load(url) {
+      if (!unity) { queue.push(url); return; }
+      unity.SendMessage("PreviewRig", "PreviewArchiveFromUrl", new URL(url, location.href).href);
+    }
+
+    addEventListener("message", (e) => {
+      if (e.origin === location.origin && e.data?.type === "load") load(e.data.url);
+    });
+
+    let depth = 0;
+    const hasFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes("Files");
+    addEventListener("dragenter", (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth++; drop.style.display = "flex"; });
+    addEventListener("dragover", (e) => { if (hasFiles(e)) e.preventDefault(); });
+    addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; drop.style.display = "none"; } });
+    addEventListener("drop", (e) => {
+      e.preventDefault();
+      depth = 0;
+      drop.style.display = "none";
+      const file = e.dataTransfer.files[0];
+      if (file) load(URL.createObjectURL(file));
+    });
+
+    (async () => {
+      const info = await (await fetch("/api/player", { headers: { "X-Pipeline-Explorer": "1" } })).json();
+      if (!info.available) { msg.textContent = info.message; return; }
+      await new Promise((ok, fail) => {
+        const s = document.createElement("script");
+        s.src = info.loaderUrl;
+        s.onload = ok;
+        s.onerror = () => fail(new Error(`couldn't load ${info.loaderUrl}`));
+        document.body.append(s);
+      });
+      unity = await createUnityInstance(document.getElementById("unity-canvas"), {
+        dataUrl: info.dataUrl,
+        frameworkUrl: info.frameworkUrl,
+        codeUrl: info.codeUrl,
+        streamingAssetsUrl: info.streamingAssetsUrl,
+        companyName: "DefaultCompany",
+        productName: "Scene Preview",
+        productVersion: "1.0",
+        showBanner: (text, type) => console[type === "error" ? "error" : "warn"](text),
+      }, (p) => { msg.textContent = `Loading the player… ${Math.round(p * 100)}%`; });
+      msg.remove();
+      parent.postMessage({ type: "player-ready" }, location.origin);
+      queue.splice(0).forEach(load);
+    })().catch((e) => { msg.textContent = `The player didn't start: ${e.message}`; });
+  </script>
+</body>
+</html>

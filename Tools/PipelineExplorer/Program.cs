@@ -63,6 +63,35 @@ app.UseStaticFiles(new StaticFileOptions
     OnPrepareResponse = f => f.Context.Response.Headers.CacheControl = "no-cache",
 });
 
+// The Scene Preview WebGL player, served from the Unity project's build folder (not copied into the
+// repo), at /player. Unity compresses its build files (.br or .gz): serve them with the matching
+// Content-Encoding and the type of the file inside, which is what the Unity loader expects.
+var playerDir = WebGlPlayer.FindBuild(app.Environment.ContentRootPath);
+if (playerDir is not null)
+{
+    var types = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+    foreach (var ext in (string[])[".br", ".gz", ".unityweb", ".data", ".symbols.json"]) types.Mappings[ext] = "application/octet-stream";
+    types.Mappings[".wasm"] = "application/wasm";
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(playerDir),
+        RequestPath = "/player",
+        ContentTypeProvider = types,
+        OnPrepareResponse = f =>
+        {
+            var headers = f.Context.Response.Headers;
+            headers.CacheControl = "no-cache";
+            var name = f.File.Name;
+            var encoding = name.EndsWith(".br") ? "br" : name.EndsWith(".gz") ? "gzip" : null;
+            if (encoding is null) return;
+            headers.ContentEncoding = encoding;
+            var inner = name[..name.LastIndexOf('.')];
+            f.Context.Response.ContentType = inner.EndsWith(".js") ? "application/javascript"
+                : inner.EndsWith(".wasm") ? "application/wasm" : "application/octet-stream";
+        },
+    });
+}
+
 var api = app.MapGroup("/api");
 
 // ── config and project service ──────────────────────────────────────────────
@@ -250,6 +279,63 @@ envRev.MapGet("/preview", async (Pipelines p, string wb, string env, string rev,
         ? Results.File(png, "image/png")
         : Results.NoContent());   // this asset type has no preview
 
+// ── the embedded Scene Preview player ───────────────────────────────────────
+
+// Which WebGL build files the player page should load (names vary with the build's compression).
+api.MapGet("/player", () => WebGlPlayer.Describe(playerDir));
+
+// One call for "preview this asset in the player": a content archive (.ca) built by the pipeline for
+// the player's platform, and the URL the player downloads it from. Finds or creates the workbench's
+// environment for that platform, then runs the importer on the asset. The first import for an asset
+// (or in a new environment) can take minutes: the request is re-sent while the pipeline is still
+// producing it, up to 15 minutes.
+var readyToRetry = new HashSet<int> { 0, 409, 502, 503, 504 };
+rev.MapPost("/player-archive", async (Pipelines p, string wb, string rev, PlayerArchiveRequest body, CancellationToken ct) =>
+{
+    var c = p.Default;
+    var platform = string.IsNullOrWhiteSpace(body.Platform) ? "WebGL" : body.Platform.Trim();
+    var importer = string.IsNullOrWhiteSpace(body.Importer) ? WebGlPlayer.ContentImporter : body.Importer.Trim();
+    var steps = new List<string>();
+
+    var env = (await c.ListEnvironmentsAsync(wb, ct))
+        .FirstOrDefault(e => string.Equals(e.Platform, platform, StringComparison.OrdinalIgnoreCase));
+    if (env is null)
+    {
+        env = await c.CreateEnvironmentAsync(wb, platform, ct);
+        steps.Add($"created a {platform} environment, {env.EnvironmentId}");
+    }
+    else steps.Add($"using the {platform} environment {env.EnvironmentId}");
+
+    var address = $"T:{body.Guid}+{importer}";
+    var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(15);
+    ImportSlot slot;
+    for (var attempt = 1; ; attempt++)
+    {
+        try
+        {
+            slot = await c.RequestImportAsync(wb, env.EnvironmentId, rev, address, null, ct);
+            steps.Add($"import {address}: done (attempt {attempt})");
+            break;
+        }
+        catch (PipelineApiException e) when (readyToRetry.Contains(e.Status) && DateTime.UtcNow < deadline)
+        {
+            steps.Add($"import attempt {attempt}: {(e.Status == 0 ? "still producing (timed out)" : $"HTTP {e.Status} {e.Code}")}; re-sending");
+            await Task.Delay(TimeSpan.FromSeconds(5), ct);
+        }
+    }
+
+    if (!string.IsNullOrEmpty(slot.Error?.Code))
+        return Results.Json(new { error = $"{slot.Error.Code}: {slot.Error.Message}", steps }, statusCode: 422);
+    var names = slot.ArtifactNames();
+    var artifact = names.FirstOrDefault(n => n.EndsWith(".ca", StringComparison.OrdinalIgnoreCase));
+    if (artifact is null)
+        return Results.Json(new { error = $"the import produced no .ca (outputs: {string.Join(", ", names.Select(n => n.Length == 0 ? "(main)" : n))})", steps }, statusCode: 422);
+
+    var url = $"/api/workbenches/{wb}/environments/{env.EnvironmentId}/revisions/{Uri.EscapeDataString(rev)}/imports/artifact" +
+              $"?address={Uri.EscapeDataString(address)}&name={Uri.EscapeDataString(artifact)}";
+    return Results.Ok(new { environmentId = env.EnvironmentId, platform, address, artifact, url, steps });
+});
+
 envRev.MapPost("/imports", async (Pipelines p, string wb, string env, string rev, ImportRequest body, CancellationToken ct) =>
 {
     var slot = await p.Default.RequestImportAsync(wb, env, rev, body.Address, null, ct);
@@ -290,6 +376,53 @@ record NewEnvironment(string? Platform);
 record Selection(string OrganizationId, string ProjectId);
 record PastedToken(string? Token);
 record ImportRequest(string Address);
+record PlayerArchiveRequest(string Guid, string? Platform, string? Importer);
+
+/// <summary>Finding and describing the Scene Preview WebGL build the app embeds.</summary>
+static class WebGlPlayer
+{
+    public const string ContentImporter = "Unity.Pipeline.Samples.ScenePreview.Importer.PreviewContentImporter";
+    const string BuildFolder = "ScenePreview_WebGL";
+
+    /// <summary>
+    /// The build folder: PIPELINE_EXPLORER_PLAYER, else Builds/ScenePreview_WebGL in the Unity project the
+    /// app sits in (Tools/ is next to Builds/).
+    /// </summary>
+    public static string? FindBuild(string contentRoot)
+    {
+        if (Environment.GetEnvironmentVariable("PIPELINE_EXPLORER_PLAYER") is { Length: > 0 } configured)
+            return Directory.Exists(configured) ? Path.GetFullPath(configured) : null;
+        foreach (var start in (string[])[contentRoot, AppContext.BaseDirectory])
+            for (var dir = new DirectoryInfo(start); dir is not null; dir = dir.Parent)
+                if (Path.Combine(dir.FullName, "Builds", BuildFolder) is var path && Directory.Exists(Path.Combine(path, "Build")))
+                    return path;
+        return null;
+    }
+
+    public static object Describe(string? dir)
+    {
+        if (dir is null)
+            return new { available = false, message = $"No WebGL player build yet: build the ScenePreview_WebGL profile to Builds/{BuildFolder} in the Unity project, then restart the app." };
+        var files = Directory.GetFiles(Path.Combine(dir, "Build")).Select(Path.GetFileName).ToList();
+        string? Find(string infix) => files.FirstOrDefault(f => f!.Contains(infix, StringComparison.Ordinal));
+        var loader = Find(".loader.js");
+        var data = Find(".data");
+        var framework = Find(".framework.js");
+        var code = Find(".wasm");
+        if (loader is null || data is null || framework is null || code is null)
+            return new { available = false, message = $"The build in {dir} is incomplete (found: {string.Join(", ", files)})." };
+        return new
+        {
+            available = true,
+            folder = dir,
+            loaderUrl = $"player/Build/{loader}",
+            dataUrl = $"player/Build/{data}",
+            frameworkUrl = $"player/Build/{framework}",
+            codeUrl = $"player/Build/{code}",
+            streamingAssetsUrl = "player/StreamingAssets",
+        };
+    }
+}
 
 sealed class NotConfiguredException(IEnumerable<string> missing)
     : Exception($"pipeline-onboard.config is missing {string.Join(", ", missing)}; onboard first (README steps 3–6)");

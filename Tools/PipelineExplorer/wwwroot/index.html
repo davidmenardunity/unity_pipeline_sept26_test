@@ -78,6 +78,8 @@
         <h2 id="selPath"></h2>
         <dl id="selFacts" class="facts"></dl>
         <div class="actions">
+          <button id="previewInPlayer" class="primary" title="Builds a WebGL content archive for this asset in the pipeline and loads it in the Scene Preview player below">Preview in player</button>
+          <span class="sep"></span>
           <button data-artifact="meta">.meta file</button>
           <button data-artifact="source">Source</button>
           <button data-artifact="preview">Preview</button>
@@ -88,6 +90,9 @@
           </select>
           <input id="importerType" placeholder="Unity.Pipeline.Samples.ScenePreview.Importer.PreviewContentImporter" title="Full type name of the importer to run, namespace included. Empty: the Scene Preview content-archive importer." hidden>
           <button data-artifact="imports">Content files</button>
+        </div>
+        <div id="playerPane" class="player-pane" hidden>
+          <iframe id="player" title="Scene Preview player" allow="fullscreen"></iframe>
         </div>
         <div id="results"></div>
       </div>
