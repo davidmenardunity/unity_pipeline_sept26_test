@@ -165,7 +165,7 @@ api.MapGet("/branches", async (Pipelines p, CancellationToken ct) =>
     try { workbenches = await c.ListWorkbenchesAsync(ct); }
     catch (PipelineApiException) { /* the branch list is still useful without them */ }
     foreach (var wb in workbenches)
-        if (wb.BranchName is { Length: > 0 } b) known.Add(b);
+        if (p.GitBranchOf(wb.WorkbenchId) is { Length: > 0 } b) known.Add(b);
 
     // The repo this project's workbenches track; GIT_REPO_URL if there are none yet.
     var repo = workbenches.OrderByDescending(w => w.CreatedAt).Select(w => w.UpstreamRepository)
@@ -176,7 +176,7 @@ api.MapGet("/branches", async (Pipelines p, CancellationToken ct) =>
     {
         try
         {
-            heads = await Git.RemoteBranchesAsync(repo, ct);
+            heads = await p.HeadsAsync(repo, ct);
             known.UnionWith(heads.Keys);
         }
         catch (Exception e) when (e is not OperationCanceledException) { gitError = e.Message; }
@@ -185,7 +185,22 @@ api.MapGet("/branches", async (Pipelines p, CancellationToken ct) =>
     return new { branches = known, heads, repository = repo, gitError };
 });
 
-api.MapGet("/workbenches", async (Pipelines p, CancellationToken ct) => await p.Default.ListWorkbenchesAsync(ct));
+// Each workbench with gitBranch: the git branch it was made from. Pipeline no longer says (a workbench's
+// own branch, branchName, is always "main"), so it's the branch this app created it on, else the one
+// branch whose latest commit it was made from, else null (unknown, or several branches share that commit).
+api.MapGet("/workbenches", async (Pipelines p, CancellationToken ct) =>
+{
+    var c = p.Default;
+    var list = await c.ListWorkbenchesAsync(ct);
+    var repo = list.Select(w => w.UpstreamRepository).FirstOrDefault(r => !string.IsNullOrEmpty(r)) ?? c.Config.RepositoryUrl;
+    IReadOnlyDictionary<string, string> heads = new Dictionary<string, string>();
+    if (repo is not null)
+    {
+        try { heads = await p.HeadsAsync(repo, ct); }
+        catch (Exception e) when (e is not OperationCanceledException) { /* known branches still come through */ }
+    }
+    return list.Select(w => p.WithGitBranch(w, heads));
+});
 
 api.MapPost("/workbenches", async (Pipelines p, NewWorkbench body, CancellationToken ct) =>
 {
@@ -194,7 +209,10 @@ api.MapPost("/workbenches", async (Pipelines p, NewWorkbench body, CancellationT
     if (repo is null) return Results.BadRequest(new { error = "no repository: set GIT_REPO_URL in the config or pass one" });
     if (string.IsNullOrWhiteSpace(body.Branch)) return Results.BadRequest(new { error = "branch is required" });
     // Needs the branch's project service running: the page starts it first and shows its progress.
-    return Results.Ok(await c.CreateWorkbenchAsync(repo, body.Branch.Trim(), ct));
+    var branch = body.Branch.Trim();
+    var created = await c.CreateWorkbenchAsync(repo, branch, ct);
+    p.RememberGitBranch(created.WorkbenchId, branch);   // only this answer says which git branch it is
+    return Results.Ok(p.WithGitBranch(created, new Dictionary<string, string>()));
 });
 
 api.MapDelete("/workbenches/{wb}", async (Pipelines p, string wb, CancellationToken ct) =>
@@ -272,7 +290,7 @@ rev.MapPost("/files", async (Pipelines p, string wb, string rev, string folder, 
         files.Add(($"{folder.Trim('/')}/{name}", buffer.ToArray()));
     }
     var c = p.Default;
-    var revision = await c.SaveFilesAsync(wb, rev, string.IsNullOrWhiteSpace(branch) ? c.Config.Branch : branch.Trim(),
+    var revision = await c.SaveFilesAsync(wb, rev, await WorkbenchBranchAsync(c, wb, branch, ct),
         files, string.IsNullOrWhiteSpace(message) ? null : message.Trim(), ct);
     return Results.Ok(new { revision, paths = files.Select(f => f.Path) });
 });
@@ -286,9 +304,60 @@ rev.MapPost("/save", async (Pipelines p, string wb, string rev, SaveRequest body
     var c = p.Default;
     var files = body.Files.Select(f => (f.Path.Trim('/'), new UTF8Encoding(false).GetBytes(f.Text ?? ""))).ToList();
     var message = string.IsNullOrWhiteSpace(body.Message) ? null : body.Message.Trim();
-    var revision = await c.SaveFilesAsync(wb, rev, string.IsNullOrWhiteSpace(body.Branch) ? c.Config.Branch : body.Branch.Trim(),
-        files, message, ct);
+    var revision = await c.SaveFilesAsync(wb, rev, await WorkbenchBranchAsync(c, wb, body.Branch, ct), files, message, ct);
     return Results.Ok(new { revision, paths = files.Select(f => f.Item1) });
+});
+
+// Publish the workbench's changes to the git branch it was made from (POST …/publishes). Reads that branch's
+// latest commit before and after, so the page can say what landed. Pushes under Pipeline's git token.
+api.MapPost("/workbenches/{wb}/publish", async (Pipelines p, string wb, PublishRequest body, CancellationToken ct) =>
+{
+    var c = p.Default;
+    var workbench = await c.GetWorkbenchAsync(wb, ct);
+    var repo = workbench.UpstreamRepository ?? c.Config.RepositoryUrl;
+    var branch = p.GitBranchOf(wb);
+    string? Head(IReadOnlyDictionary<string, string> heads) => branch is not null && heads.TryGetValue(branch, out var h) ? h : null;
+    IReadOnlyDictionary<string, string> before = new Dictionary<string, string>();
+    if (repo is not null) try { before = await p.HeadsAsync(repo, ct, fresh: true); } catch (InvalidOperationException) { }
+    var result = await c.PublishAsync(wb, string.IsNullOrWhiteSpace(body.Message) ? null : body.Message.Trim(), null, ct);
+    IReadOnlyDictionary<string, string> after = before;
+    if (repo is not null) try { after = await p.HeadsAsync(repo, ct, fresh: true); } catch (InvalidOperationException) { }
+    // A new branch on the remote after a drafted publish is most likely the draft.
+    var newBranches = after.Keys.Except(before.Keys).ToList();
+    // The workbench revision that was published; empty when there was nothing new to publish.
+    string? published = null;
+    try
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(result.Body);
+        if (doc.RootElement.TryGetProperty("publishedRevision", out var pr)) published = pr.ToString();
+    }
+    catch (System.Text.Json.JsonException) { }
+    return Results.Ok(new
+    {
+        result.Outcome, result.Status, response = result.Body, gitBranch = branch, publishedRevision = published,
+        headBefore = Head(before), headAfter = Head(after), newBranches,
+        upstreamRevision = workbench.UpstreamRevision,
+    });
+});
+
+// Bring the workbench up to date with its git branch (PATCH …/workbenches/{wb} {type: "sync"}). Says which commit
+// it was made from before and after, and where the branch is, so the page can tell whether anything came in.
+api.MapPost("/workbenches/{wb}/sync", async (Pipelines p, string wb, CancellationToken ct) =>
+{
+    var c = p.Default;
+    var before = await c.GetWorkbenchAsync(wb, ct);
+    var (status, body) = await c.SyncWorkbenchAsync(wb, null, ct);
+    var after = await c.GetWorkbenchAsync(wb, ct);
+    var branch = p.GitBranchOf(wb);
+    string? head = null;
+    if (branch is not null && (after.UpstreamRepository ?? c.Config.RepositoryUrl) is { } repo)
+        try { head = (await p.HeadsAsync(repo, ct, fresh: true)).GetValueOrDefault(branch); } catch (InvalidOperationException) { }
+    return Results.Ok(new
+    {
+        status, response = body, gitBranch = branch, head,
+        commitBefore = before.UpstreamRevision, commitAfter = after.UpstreamRevision,
+        validation = after.Validation?.Status,
+    });
 });
 
 // ── environment reads: previews and imports ─────────────────────────────────
@@ -375,6 +444,15 @@ api.MapGet("/activity", (Pipelines p, long? after) => p.ActivitySince(after ?? 0
 
 app.Run();
 
+// The branch a change is committed to inside the workbench: its own (Pipeline names it "main"), not the
+// git branch it was made from. `given` overrides it.
+static async Task<string> WorkbenchBranchAsync(PipelineClient c, string wb, string? given, CancellationToken ct)
+{
+    if (!string.IsNullOrWhiteSpace(given)) return given.Trim();
+    try { return (await c.GetWorkbenchAsync(wb, ct)).BranchName ?? "main"; }
+    catch (PipelineApiException) { return "main"; }
+}
+
 static object Service(ProjectServiceStatus s) => new
 {
     s.Status, s.Message, s.IsReady, s.IsStarting, s.IsStopped, summary = s.Describe(),
@@ -394,6 +472,7 @@ record NewWorkbench(string Branch, string? Repository);
 record ActivityItem(long Id, DateTimeOffset At, string Method, string Path, int Status, int Ms, string? RequestId,
     string? ErrorCode, string? ErrorDetail, bool IsPoll, string? Exchange, string? Curl, string? Op);
 record SaveRequest(List<SavedFile>? Files, string? Message, string? Branch);
+record PublishRequest(string? Message);
 record SavedFile(string Path, string? Text);
 
 /// <summary>The page operation the current request belongs to (its X-Op header), for grouping activity.</summary>
@@ -472,6 +551,71 @@ sealed class Pipelines
     // are protected by Windows for the current user), outside the repo.
     static readonly string SavedTokenPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PipelineExplorer", "token.dat");
+    // The git branch each workbench this app created was made from (Pipeline only says so when creating).
+    static readonly string GitBranchesPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PipelineExplorer", "workbench-branches.json");
+    Dictionary<string, string>? gitBranches;
+    (string Repo, DateTime At, IReadOnlyDictionary<string, string> Heads)? headsCache;
+
+    public string? GitBranchOf(string workbenchId)
+    {
+        lock (GitBranchesPath)
+        {
+            gitBranches ??= ReadJson<Dictionary<string, string>>(GitBranchesPath) ?? [];
+            return gitBranches.GetValueOrDefault(workbenchId);
+        }
+    }
+
+    public void RememberGitBranch(string workbenchId, string branch)
+    {
+        lock (GitBranchesPath)
+        {
+            gitBranches ??= ReadJson<Dictionary<string, string>>(GitBranchesPath) ?? [];
+            gitBranches[workbenchId] = branch;
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(GitBranchesPath)!);
+                File.WriteAllText(GitBranchesPath, System.Text.Json.JsonSerializer.Serialize(gitBranches));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                log.LogWarning("Couldn't save the workbench's branch ({Message}).", e.Message);
+            }
+        }
+    }
+
+    T? ReadJson<T>(string path) where T : class
+    {
+        try { return File.Exists(path) ? System.Text.Json.JsonSerializer.Deserialize<T>(File.ReadAllText(path)) : null; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            log.LogWarning("Couldn't read {Path} ({Message}).", path, e.Message);
+            return null;
+        }
+    }
+
+    /// <summary>Branch → latest commit (git ls-remote), cached for 20 s.</summary>
+    public async Task<IReadOnlyDictionary<string, string>> HeadsAsync(string repo, CancellationToken ct, bool fresh = false)
+    {
+        if (!fresh && headsCache is { } h && h.Repo == repo && DateTime.UtcNow - h.At < TimeSpan.FromSeconds(20)) return h.Heads;
+        var heads = await Git.RemoteBranchesAsync(repo, ct);
+        headsCache = (repo, DateTime.UtcNow, heads);
+        return heads;
+    }
+
+    /// <summary>The workbench as JSON, plus gitBranch: the branch it was made from, or null when that can't be told.</summary>
+    public System.Text.Json.Nodes.JsonObject WithGitBranch(Workbench w, IReadOnlyDictionary<string, string> heads)
+    {
+        var node = System.Text.Json.JsonSerializer.SerializeToNode(w, System.Text.Json.JsonSerializerOptions.Web)!.AsObject();
+        var known = GitBranchOf(w.WorkbenchId);
+        var fromHead = heads.Where(kv => kv.Value == w.UpstreamRevision).Select(kv => kv.Key).ToList();
+        node["gitBranch"] = known ?? (fromHead.Count == 1 ? fromHead[0] : null);
+        node["gitBranchKnown"] = known is not null;
+        // Several branches at that commit: the page can say which, instead of guessing.
+        if (known is null && fromHead.Count > 1) node["gitBranchCandidates"] = new System.Text.Json.Nodes.JsonArray(fromHead.Select(b => (System.Text.Json.Nodes.JsonNode?)b).ToArray());
+        return node;
+    }
+
     // The last org/project picked in the page, so other clients (the Blender add-on) see it after a restart.
     static readonly string SavedSelectionPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PipelineExplorer", "selection.json");

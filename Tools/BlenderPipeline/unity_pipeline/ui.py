@@ -13,6 +13,18 @@ from .state import S, busy_text
 ICON = {"INFO": "INFO", "OK": "CHECKMARK", "ERROR": "ERROR"}
 
 
+def version():
+    """The add-on's version, from its manifest: shown in the sidebar, to tell which code Blender loaded."""
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "blender_manifest.toml"), encoding="utf8") as f:
+            return next((l.split('"')[1] for l in f if l.startswith("version")), "?")
+    except OSError:
+        return "?"
+
+
+VERSION = version()
+
+
 def size_text(n):
     return f"{n} B" if n < 1024 else f"{n / 1024:.1f} KB" if n < 1048576 else f"{n / 1048576:.1f} MB"
 
@@ -36,11 +48,22 @@ class UNITY_PIPELINE_MT_workbenches(bpy.types.Menu):
         wbs = S.workbenches_on(S.branch)
         if not wbs:
             self.layout.label(text=f"No workbench on {S.branch}: create one in Pipeline Explorer")
-        for w in wbs:
+
+        def item(w):
             commit = (w.get("upstreamRevision") or "")[:7]
-            behind = f"  (behind {S.branch} @{S.heads[S.branch][:7]})" if S.behind(w) else ""
-            self.layout.operator("unity_pipeline.pick_workbench", text=f"{w['workbenchId'][:8]}  @{commit}{behind}",
+            note = (f"  ({' or '.join(w['gitBranchCandidates'])}?)" if not w.get("gitBranch") and w.get("gitBranchCandidates")
+                    else f"  (behind {S.branch} @{S.heads[S.branch][:7]})" if S.behind(w) else "")
+            self.layout.operator("unity_pipeline.pick_workbench", text=f"{w['workbenchId'][:8]}  @{commit}{note}",
                                  icon="CHECKMARK" if w["workbenchId"] == S.wb else "BLANK1").workbench = w["workbenchId"]
+
+        for w in wbs:
+            item(w)
+        unknown = S.workbenches_unknown()
+        if unknown:
+            self.layout.separator()
+            self.layout.label(text="Branch unknown (made elsewhere, from an older commit)")
+            for w in unknown:
+                item(w)
 
 
 def wrap(text, context):
@@ -80,6 +103,7 @@ class UNITY_PIPELINE_PT_main(bpy.types.Panel):
             layout.operator("unity_pipeline.connect", icon="LINKED")
             layout.label(text=f"Through Pipeline Explorer at {context.preferences.addons[__package__].preferences.server}")
             layout.operator("unity_pipeline.open_explorer", icon="URL")
+            layout.label(text=f"Add-on version {VERSION}")
             return
         cfg = S.config
         col = layout.column(align=True)
@@ -94,9 +118,11 @@ class UNITY_PIPELINE_PT_main(bpy.types.Panel):
         current = next((w for w in S.workbenches if w["workbenchId"] == S.wb), None)
         if current and S.behind(current):
             layout.label(text=f"Older than {S.branch}'s latest commit", icon="INFO")
+        layout.operator("unity_pipeline.publish", text="Publish to git…", icon="EXPORT")
         row = layout.row(align=True)
         row.operator("unity_pipeline.connect", text="Refresh", icon="FILE_REFRESH")
         row.operator("unity_pipeline.open_explorer", text="Explorer", icon="URL")
+        layout.label(text=f"Add-on version {VERSION}")
 
 
 class UNITY_PIPELINE_PT_scene(bpy.types.Panel):

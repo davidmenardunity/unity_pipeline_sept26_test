@@ -203,3 +203,6 @@ public sealed record CommitResult(string? RevisionId, bool? NoNewRevision);
 public sealed record BlobUpload(string UploadHandle, string? ContentGuid, long? ByteCount);
 
 public sealed record OpenedTransaction(string TransactionId);
+
+/// <summary>What a publish did: published, drafted (landed on a draft branch), or a job state; and the raw answer.</summary>
+public sealed record PublishResult(string Outcome, int Status, string Body);

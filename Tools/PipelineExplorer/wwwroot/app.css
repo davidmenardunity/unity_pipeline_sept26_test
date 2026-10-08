@@ -105,9 +105,25 @@ button.pill:hover { border-color: var(--accent); }
 .banner { padding: 8px 16px; background: var(--bad-soft); border-bottom: 1px solid var(--bad); white-space: pre-wrap; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .banner.info { background: var(--accent-soft); border-color: var(--accent); }
 
+/* The workbench being created or getting ready. */
+.wbstrip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 16px; background: var(--accent-soft); border-bottom: 1px solid var(--accent); }
+.wbstrip.failed { background: var(--bad-soft); border-color: var(--bad); }
+.wbstrip.done { background: var(--ok-soft); border-color: var(--ok); }
+.wbstrip.stopped { background: var(--sunk); border-color: var(--line); }
+.wbstrip .title { font-weight: 600; display: inline-flex; gap: 8px; align-items: center; }
+.wbstrip .msteps { display: flex; flex-wrap: wrap; gap: 4px 12px; list-style: none; margin: 0; padding: 0; font-size: 12px; }
+.wbstrip .msteps li { display: inline-flex; gap: 5px; align-items: center; color: var(--muted); }
+.wbstrip .msteps li.active { color: var(--ink); font-weight: 600; }
+.wbstrip .msteps li.done { color: var(--ok); }
+.wbstrip .msteps li.failed { color: var(--bad); font-weight: 600; }
+.wbstrip .msteps .spin { width: 10px; height: 10px; }
+.wbstrip .detail { flex-basis: 100%; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+.wbstrip.failed .detail { color: var(--bad); }
+#refreshBranches.busy { animation: spin .8s linear infinite; }
+
 /* ── views ─────────────────────────────────────────────── */
 /* Fixed rows: hidden elements (the banner, other examples) mustn't shift the layout. */
-.config { grid-row: 1; } .examples { grid-row: 2; } .banner { grid-row: 3; } .view { grid-row: 4; } .status { grid-row: 5; }
+.config { grid-row: 1; } .examples { grid-row: 2; } .notices { grid-row: 3; } .view { grid-row: 4; } .status { grid-row: 5; }
 .view { min-height: 0; }
 .work { display: grid; min-height: 0; }
 /* The asset panel starts at half the window; the splitter resizes it (--insp-w). */

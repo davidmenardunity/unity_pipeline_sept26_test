@@ -43,15 +43,20 @@ class State:
 
     def behind(self, w):
         """Was this workbench made from an older commit than its branch's latest? (It won't have the newer files.)"""
-        head = self.heads.get(w.get("branchName"))
+        head = self.heads.get(w.get("gitBranch"))
         return bool(head and w.get("upstreamRevision") and head != w["upstreamRevision"])
 
     def workbenches_on(self, branch):
-        """The branch's workbenches, up to date ones first, then newest first."""
-        default = (self.config or {}).get("branch")
-        on = [w for w in self.workbenches if (w.get("branchName") or default) == branch]
+        """The workbenches made from this git branch (or maybe made from it, when several branches share
+        the commit), up to date ones first, then newest first."""
+        on = [w for w in self.workbenches
+              if w.get("gitBranch") == branch or (not w.get("gitBranch") and branch in (w.get("gitBranchCandidates") or []))]
         on.sort(key=lambda w: w.get("createdAt") or "", reverse=True)
         return sorted(on, key=self.behind)
+
+    def workbenches_unknown(self):
+        """Workbenches whose git branch can't be told (made elsewhere, from an older commit)."""
+        return [w for w in self.workbenches if not w.get("gitBranch") and not w.get("gitBranchCandidates")]
 
 
 class Job:

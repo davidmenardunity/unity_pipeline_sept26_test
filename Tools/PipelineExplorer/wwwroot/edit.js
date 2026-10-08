@@ -373,7 +373,7 @@
     renderBar();
     try {
       op.step("upload", "active", fmtBytes(text.length));
-      const r = await postJson(`${App.revUrl(wb, base)}/save`, { files: [{ path, text }], message, branch: App.branchOf(wb) }, op);
+      const r = await postJson(`${App.revUrl(wb, base)}/save`, { files: [{ path, text }], message }, op);
       op.step("upload", "done", `revision ${r.revision}`);
       op.note(`Committed "${message}" as revision ${r.revision}. It validates before it can be read.`);
       const settled = await waitUntilSettled(wb, op, r.revision);

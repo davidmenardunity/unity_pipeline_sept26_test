@@ -19,8 +19,15 @@ Needs Blender 4.2 or later (tested with 5.2).
    blender --command extension build --source-dir Tools/BlenderPipeline/unity_pipeline --output-dir Tools/BlenderPipeline/dist
    ```
 
+   Or, to work on the add-on, link the folder so Blender loads it from the repo (restart Blender after
+   a change, and don't use Blender's Uninstall on it: that deletes the folder it points at):
+
+   ```powershell
+   New-Item -ItemType Junction -Path "$env:APPDATA\Blender Foundation\Blender\5.2\extensions\user_default\unity_pipeline" -Target "$PWD\Tools\BlenderPipeline\unity_pipeline"
+   ```
+
 2. In Blender: **Edit > Preferences > Get Extensions**, the **⌄** menu at the top right, **Install from Disk…**,
-   and pick `Tools/BlenderPipeline/dist/unity_pipeline-0.1.0.zip`.
+   and pick `Tools/BlenderPipeline/dist/unity_pipeline-0.2.0.zip`.
 3. Start Pipeline Explorer (`dotnet run --project Tools/PipelineExplorer`), open <http://127.0.0.1:5280>
    once to paste a token and pick the org and project. It remembers both.
 
@@ -44,7 +51,12 @@ Open the sidebar in a 3D Viewport (**N**) and pick the **Pipeline** tab.
    until the revision validates (about a minute). If the asset changed on the workbench after you opened it, the push stops and says so:
    **Reopen** it, or push again with **Overwrite newer changes**.
 
-The status box at the top always says what is running (and for how long), or the last result.
+**Publish to git…** (under the workbench) pushes the workbench's changes to its git branch, with
+Pipeline's own git token. It needs a workbench with a VCS connection that can push; see Pipeline
+Explorer's README.
+
+The status box at the top always says what is running (and for how long), or the last result. The
+sidebar also shows the add-on's version, to check which code Blender has loaded.
 Every call also shows in Pipeline Explorer's **Activity**.
 
 ## Formats

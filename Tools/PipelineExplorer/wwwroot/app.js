@@ -274,7 +274,8 @@ const App = {
   register(example) { this.examples.push(example); },
 
   revUrl(wb = this.wb, rev = this.revision) { return `/api/workbenches/${wb}/revisions/${enc(rev)}`; },
-  branchOf(wb) { return this.workbenches.find((w) => w.workbenchId === wb)?.branchName || this.branch; },
+  // The git branch a workbench was made from (null when Pipeline and this app can't tell).
+  gitBranchOf(wb) { return this.workbenches.find((w) => w.workbenchId === wb)?.gitBranch ?? null; },
 
   async boot() {
     wireConfig();
@@ -461,14 +462,19 @@ async function startService() {
 
 async function loadBranches() {
   const r = await getJson("/api/branches");
+  App.branchesAt = Date.now();
+  const same = JSON.stringify(r.branches) === JSON.stringify(App.branches);
   App.branches = r.branches;
   App.heads = r.heads ?? {};
   App.repository = r.repository;
   App.branch ??= App.config.branch;
   const sel = $("branch");
-  put(sel, r.branches.map((b) => h("option", { value: b }, b)), h("option", { value: "__other" }, "Other…"));
-  if (!r.branches.includes(App.branch)) sel.prepend(h("option", { value: App.branch }, App.branch));
-  sel.value = App.branch;
+  // Only rebuild the list when it changed: it may be open in front of you.
+  if (!same || !sel.options.length) {
+    put(sel, r.branches.map((b) => h("option", { value: b }, b)), h("option", { value: "__other" }, "Other…"));
+    if (!r.branches.includes(App.branch)) sel.prepend(h("option", { value: App.branch }, App.branch));
+    sel.value = App.branch;
+  }
   sel.title = r.gitError ? `Couldn't list the repo's branches: ${r.gitError}` : `Branches of ${r.repository ?? "the repo"}`;
   App.emit("branches");
 }
@@ -506,28 +512,81 @@ async function followServiceThenReload(preferId) {
   } catch { /* on the op */ }
 }
 
+// Workbenches are listed under the git branch they were made from (gitBranch, from the server). One whose
+// branch can't be told (made elsewhere, from a commit several branches share) shows under each of those
+// branches, marked; one made from an older commit shows under "branch unknown" on every branch.
 const behindHead = (w, branch) => {
-  const head = App.heads?.[branch ?? w.branchName];
+  const head = App.heads?.[branch ?? w.gitBranch];
   return head && w.upstreamRevision && head !== w.upstreamRevision ? head : null;
 };
-const workbenchLabel = (w) => `${short(w.workbenchId)} · ${w.upstreamRevision ? "@" + w.upstreamRevision.slice(0, 7) : ""}` +
-  (w.createdAt ? ` · ${new Date(w.createdAt).toLocaleDateString()}` : "") + (behindHead(w) ? ` · behind ${App.heads[w.branchName].slice(0, 7)}` : "");
-const workbenchesOn = (branch) => App.workbenches.filter((w) => (w.branchName || App.config.branch) === branch)
-  .sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0));
+const workbenchLabel = (w, branch = App.branch) => `${short(w.workbenchId)} · ${w.upstreamRevision ? "@" + w.upstreamRevision.slice(0, 7) : ""}` +
+  (w.createdAt ? ` · ${new Date(w.createdAt).toLocaleDateString()}` : "") +
+  (!w.gitBranch && w.gitBranchCandidates ? ` · ${w.gitBranchCandidates.join(" or ")}?` : "") +
+  (w.gitBranch && behindHead(w, branch) ? ` · behind ${App.heads[branch].slice(0, 7)}` : "");
+const byNewest = (a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0);
+const workbenchesOn = (branch) => App.workbenches
+  .filter((w) => w.gitBranch === branch || (!w.gitBranch && w.gitBranchCandidates?.includes(branch)))
+  .sort(byNewest);
+const workbenchesUnknown = () => App.workbenches.filter((w) => !w.gitBranch && !w.gitBranchCandidates?.length).sort(byNewest);
+function workbenchOptions(branch) {
+  const on = workbenchesOn(branch), unknown = workbenchesUnknown();
+  const opt = (w) => h("option", { value: w.workbenchId, title: `${w.upstreamRepository ?? ""}\nmade from ${w.gitBranch ?? "an unknown branch"} @${(w.upstreamRevision ?? "").slice(0, 7)}` }, workbenchLabel(w, branch));
+  return [
+    on.length ? on.map(opt) : h("option", { value: "" }, `(no workbench on ${branch})`),
+    unknown.length ? h("optgroup", { label: "Branch unknown (made elsewhere, from an older commit)" }, unknown.map(opt)) : null,
+  ];
+}
 
 function renderWorkbenchPicker(preferId) {
   const onBranch = workbenchesOn(App.branch);
   const sel = $("workbench");
-  put(sel,
-    onBranch.length ? null : h("option", { value: "" }, "(no workbench on this branch)"),
-    onBranch.map((w) => h("option", { value: w.workbenchId, title: `${w.upstreamRepository ?? ""} ${w.branchName ?? ""}` }, workbenchLabel(w))));
-  const pick = onBranch.find((w) => w.workbenchId === preferId)
+  put(sel, workbenchOptions(App.branch));
+  const listed = [...onBranch, ...workbenchesUnknown()];
+  const pick = listed.find((w) => w.workbenchId === preferId)
     ?? onBranch.find((w) => w.workbenchId === App.wb)
     ?? onBranch.find((w) => w.workbenchId === App.config.workbenchId)
     ?? onBranch[0];
   sel.value = pick?.workbenchId ?? "";
   selectWorkbench(pick?.workbenchId ?? null);
 }
+
+// Branches and workbenches again (new branches pushed, workbenches made elsewhere). The selection stays.
+let refreshing = null;
+function refreshBranches() {
+  if (!App.config?.organizationId || !App.config?.projectId) return null;
+  refreshing ??= (async () => {
+    const btn = $("refreshBranches");
+    btn.classList.add("busy");
+    btn.disabled = true;
+    try {
+      const before = new Set(App.branches);
+      await loadBranches();
+      const added = App.branches.filter((b) => !before.has(b));
+      await loadWorkbenchList();
+      if (added.length && before.size) banner(`New branch${added.length > 1 ? "es" : ""}: ${added.join(", ")}`, "info");
+    } catch (e) {
+      banner(`Couldn't refresh the branches: ${describeError(e)}`);
+    } finally {
+      btn.classList.remove("busy");
+      btn.disabled = false;
+      refreshing = null;
+    }
+  })();
+  return refreshing;
+}
+
+// The workbench list again, without changing the selected workbench (unless it's gone).
+async function loadWorkbenchList() {
+  try { App.workbenches = await getJson("/api/workbenches"); } catch { return; }
+  App.emit("workbenches");
+  if (creatingOn(App.branch)) return;   // the picker says "Creating…" until it's done
+  const listed = [...workbenchesOn(App.branch), ...workbenchesUnknown()];
+  if (!App.wb || !listed.some((w) => w.workbenchId === App.wb)) { renderWorkbenchPicker(); return; }
+  const sel = $("workbench");
+  put(sel, workbenchOptions(App.branch));
+  sel.value = App.wb;
+}
+const creatingOn = (branch) => Ops.running().find((o) => o.kind === "workbench" && o.creating && o.branch === branch);
 
 async function changeBranch() {
   let b = $("branch").value;
@@ -558,7 +617,14 @@ async function newWorkbench() {
 async function createWorkbench(branch, repository = App.repository, { select = true, replacing = null, example } = {}) {
   const op = Ops.start({ title: `Create a workbench on ${branch}`, kind: "workbench", example,
     steps: [{ id: "service", label: "Project service" }, { id: "created", label: "Create the workbench" }, { id: "validating", label: "Import and validate" }, { id: "settled", label: "Ready to read" }] });
-  if (select) { $("newWorkbench").disabled = true; selectWorkbench(null); }
+  Object.assign(op, { creating: true, branch, strip: true });
+  op.retry = { label: "Try again", run: () => createWorkbench(branch, repository, { select, example }) };
+  if (select) {
+    $("newWorkbench").disabled = true;
+    selectWorkbench(null);
+    put($("workbench"), h("option", { value: "" }, `Creating on ${branch}…`));
+    readinessPill("creating…", "busy");
+  }
   try {
     if (!(await waitForService(op))) return null;
     const before = new Set(App.workbenches.map((w) => w.workbenchId));
@@ -580,10 +646,16 @@ async function createWorkbench(branch, repository = App.repository, { select = t
       return wb.workbenchId;
     }
     op.step("created", "done", short(wb.workbenchId));
-    op.note(`Workbench ${wb.workbenchId} created from ${wb.upstreamRevision?.slice(0, 7) ?? "?"}.`);
+    op.note(`Workbench ${short(wb.workbenchId)} created from ${wb.upstreamRevision?.slice(0, 7) ?? "?"}. It imports the branch and validates it; the first time takes 2–3 minutes.`);
+    op.wb = wb.workbenchId;
     if (select) {
       App.wbOp = op;   // the selected workbench's poll carries on in this op
       await loadWorkbenches(wb.workbenchId);
+      // The listing can lag behind the create: keep the new one in it, and selected.
+      if (!App.workbenches.some((w) => w.workbenchId === wb.workbenchId)) {
+        App.workbenches.push({ ...wb, gitBranch: branch });
+        renderWorkbenchPicker(wb.workbenchId);
+      }
     } else {
       await loadWorkbenches(App.wb);
       await waitUntilSettled(wb.workbenchId, op);
@@ -595,6 +667,65 @@ async function createWorkbench(branch, repository = App.repository, { select = t
     return null;
   } finally {
     $("newWorkbench").disabled = false;
+    // Nothing was made: put the workbench list back (the strip says what happened).
+    if (select && !op.wb) renderWorkbenchPicker();
+  }
+}
+
+// Push the workbench's changes (its revisions since it was made) to the git branch it came from.
+async function publishWorkbench() {
+  const wb = App.wb;
+  if (!wb || !App.revision) { banner("Pick a workbench that's ready to read first.", "info"); return; }
+  if (Ops.running().some((o) => o.kind === "publish")) { banner("A publish is already running.", "info"); return; }
+  const branch = App.gitBranchOf(wb);
+  if (!branch) {
+    banner(`Can't tell which git branch workbench ${short(wb)} was made from, so it isn't published from here. Publish from a workbench this app created.`);
+    return;
+  }
+  const message = await ask({
+    title: `Publish workbench ${short(wb)} to ${branch}?`,
+    message: `Pushes this workbench's changes (revision ${App.revision}) to the git branch ${branch} on GitHub.\n\n` +
+      "Pipeline pushes with its own git token, so the commit won't carry your git identity. " +
+      "If Pipeline can't push to the branch directly, the commit lands on a draft branch instead. It can take a few minutes.",
+    value: `Publish from Pipeline workbench ${short(wb)}`, placeholder: "Commit message", ok: "Publish",
+  });
+  if (message === null) return;
+  const op = Ops.start({ title: `Publish workbench ${short(wb)} to ${branch}`, kind: "publish",
+    steps: [{ id: "publish", label: `Publish to ${branch}` }, { id: "check", label: "Check the branch on GitHub" }] });
+  Object.assign(op, { strip: true, wb, retry: { label: "Try again", run: () => publishWorkbench() } });
+  $("publishWorkbench").disabled = true;
+  try {
+    op.step("publish", "active", "this can take a few minutes");
+    const r = await postJson(`/api/workbenches/${wb}/publish`, { message: message || null }, op);
+    op.step("publish", "done", r.outcome);
+    op.step("check", "active");
+    op.note(`Pipeline answered ${r.status}: ${(r.response || "(no body)").slice(0, 400)}`);
+    const moved = r.headAfter && r.headAfter !== r.headBefore;
+    op.step("check", "done", moved ? `${branch} @${r.headAfter.slice(0, 7)}` : "no new commit");
+    if (r.publishedRevision === "") {
+      op.retry = null;
+      op.done(`Nothing to publish: workbench ${short(wb)} has no changes since it was made from ${branch}.`);
+    } else if (r.outcome === "drafted") {
+      op.retry = null;
+      op.done(`Landed on a draft branch${r.newBranches?.length ? `: ${r.newBranches.join(", ")}` : ""}, not on ${branch}. Merge it on GitHub.`);
+    } else if (moved) {
+      op.retry = null;
+      op.done(`Published revision ${r.publishedRevision ?? "?"}: ${branch} is now at ${r.headAfter.slice(0, 7)} (was ${r.headBefore?.slice(0, 7) ?? "?"})`);
+    } else {
+      op.retry = null;
+      op.done(`Published, but ${branch} didn't move (still ${r.headBefore?.slice(0, 7) ?? "?"}): nothing new to publish, or it landed elsewhere. See Details.`);
+    }
+    refreshBranches();
+  } catch (e) {
+    const text = describeError(e);
+    if (/could not read Username|Authentication failed|Permission denied|403/.test(text)) {
+      op.retry = null;
+      op.fail(`Pipeline couldn't push to ${branch}: it has no git credentials for this repository. ` +
+        "This workbench was made from the repo's public URL, without a VCS connection, so Pipeline can read the repo but not push to it. " +
+        "Nothing changed on GitHub.\n\n" + text);
+    } else op.fail(e);
+  } finally {
+    $("publishWorkbench").disabled = false;
   }
 }
 
@@ -627,6 +758,60 @@ function selectWorkbench(id) {
   readinessPill(id ? "checking…" : "no workbench", id ? "busy" : "");
   App.emit("revision", { wb: id, revision: null });
   if (id) pollWorkbench(id, true);
+}
+
+// "Update from git" shows when the selected workbench was made from an older commit than its branch's latest.
+function renderUpdateButton() {
+  const btn = $("updateWorkbench");
+  const w = App.workbenches.find((x) => x.workbenchId === App.wb);
+  const head = w?.gitBranch && App.heads?.[w.gitBranch];
+  const behind = !!(head && w.upstreamRevision && head !== w.upstreamRevision);
+  btn.hidden = !behind || !App.revision;
+  btn.disabled = Ops.running().some((o) => o.kind === "workbench" && o.wb === App.wb);
+  if (behind) btn.title = `${w.gitBranch} is at ${head.slice(0, 7)}; this workbench was made from ${w.upstreamRevision.slice(0, 7)}. Bring it up to date.`;
+}
+
+// Bring the workbench up to date with its git branch. Pipeline's sync is asked for, then checked: if the
+// workbench didn't move to the branch's latest commit, say so and offer a fresh workbench instead.
+async function updateWorkbench() {
+  const wb = App.wb;
+  const w = App.workbenches.find((x) => x.workbenchId === wb);
+  const branch = w?.gitBranch, head = App.heads?.[branch];
+  if (!branch || !head) return;
+  const ok = await ask({
+    title: `Update workbench ${short(wb)} from ${branch}?`,
+    message: `${branch} is at ${head.slice(0, 7)}; this workbench was made from ${w.upstreamRevision.slice(0, 7)}. ` +
+      "Pipeline syncs the workbench with the branch, then validates it again (a minute or two).\n\n" +
+      "Changes made in the workbench that weren't published to git may conflict with what comes in.",
+    ok: "Update",
+  });
+  if (!ok) return;
+  const op = Ops.start({ title: `Update workbench ${short(wb)} from ${branch}`, kind: "workbench",
+    steps: [{ id: "sync", label: `Sync with ${branch} @${head.slice(0, 7)}` }, { id: "validating", label: "Validate" }, { id: "settled", label: "Ready to read" }] });
+  Object.assign(op, { strip: true, wb });
+  renderUpdateButton();
+  try {
+    op.step("sync", "active");
+    const r = await postJson(`/api/workbenches/${wb}/sync`, {}, op);
+    op.note(`Pipeline answered ${r.status}: ${(r.response || "").slice(0, 300)}`);
+    const latest = r.head ?? head;
+    if (r.commitAfter && r.commitAfter === latest) {
+      op.step("sync", "done", `now at ${latest.slice(0, 7)}`);
+      const settled = await waitUntilSettled(wb, op);
+      await loadWorkbenches(wb);
+      if (App.wb === wb) await openRevision(wb, settled);
+      op.done(`Up to date with ${branch} @${latest.slice(0, 7)}, revision ${settled}`);
+    } else {
+      op.step("sync", "failed", `still at ${(r.commitAfter ?? "?").slice(0, 7)}`);
+      op.retry = { label: `Create a fresh workbench on ${branch}`, run: () => createWorkbench(branch) };
+      op.fail(`Pipeline answered "${r.validation ?? r.status}", but the workbench is still on ${(r.commitAfter ?? "?").slice(0, 7)}, ` +
+        `not ${branch}'s ${latest.slice(0, 7)}: its sync doesn't pull new git commits into an existing workbench. ` +
+        "A fresh workbench starts from the branch's latest commit (publish this one first if it has changes to keep).");
+    }
+  } catch (e) {
+    op.fail(e);
+  }
+  renderUpdateButton();
 }
 
 function readinessPill(text, cls, title = "") {
@@ -747,6 +932,11 @@ function wireConfig() {
   $("environment").addEventListener("change", (e) => (App.env = e.target.value || null));
   $("newWorkbench").addEventListener("click", newWorkbench);
   $("deleteWorkbench").addEventListener("click", deleteWorkbench);
+  $("publishWorkbench").addEventListener("click", publishWorkbench);
+  $("updateWorkbench").addEventListener("click", updateWorkbench);
+  App.on("revision", renderUpdateButton);
+  App.on("workbenches", renderUpdateButton);
+  App.on("branches", renderUpdateButton);
   $("addEnvironment").addEventListener("click", addEnvironment);
   $("startService").addEventListener("click", startService);
   $("service").addEventListener("click", loadService);
@@ -830,7 +1020,12 @@ function fileTree(ul, opts = {}) {
       const keep = wb === workbench ? openFolders() : [];
       const sel = wb === workbench ? current : null;
       wb = workbench; rev = revision;
-      if (!wb || !rev) { put(ul, h("li", { class: "note" }, wb ? "Waiting for the workbench to be ready to read…" : "Pick a workbench at the top.")); return; }
+      if (!wb || !rev) {
+        const creating = Ops.running().find((o) => o.kind === "workbench");
+        put(ul, h("li", { class: "note" }, creating ? [h("span", { class: "spin" }), ` ${creating.title}: see the progress above.`]
+          : wb ? "Waiting for the workbench to be ready to read…" : "Pick a workbench at the top, or create one."));
+        return;
+      }
       put(ul, ROOTS.map((r) => node(r, true)));
       for (const f of keep) await reveal(f).then((li) => li?.expand?.());
       if (sel) { await reveal(sel); select(sel); }
@@ -875,7 +1070,7 @@ async function uploadFiles(folder, files, example) {
       op.step("upload", "active", fmtBytes(total));
       const form = new FormData();
       for (const f of files) form.append("files", f, f.name);
-      const res = await fetch(`${App.revUrl(wb, base)}/files?folder=${enc(folder)}&branch=${enc(App.branchOf(wb))}`,
+      const res = await fetch(`${App.revUrl(wb, base)}/files?folder=${enc(folder)}`,
         { method: "POST", headers: { "X-Pipeline-Explorer": "1", "X-Op": op.id }, body: form });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new ApiError(res.status, body);
@@ -988,6 +1183,35 @@ function renderStatus() {
     h("span", { class: "num" + (errs ? " s5" : "") }, `${errs} error${errs === 1 ? "" : "s"}`));
 }
 
+// The workbench being created, or getting ready to read: shown under the example tabs until it's
+// ready (then briefly), or until a failure is dismissed. Switching tabs doesn't hide it.
+function renderWbStrip() {
+  const strip = $("wbStrip");
+  const op = Ops.list.find((o) => (o.kind === "workbench" || o.kind === "publish") && !o.dismissed && (o.running || o.strip || o === App.wbOp));
+  const fresh = op && (op.running || op.state !== "done" || op.kind === "publish" || Date.now() - op.ended < 8000);
+  if (!op || !fresh) {
+    strip.hidden = true;
+    if (op?.state === "done" && !op.hideTimer) op.hideTimer = true;
+    return;
+  }
+  if (op.state === "done" && op.kind !== "publish" && !op.hideTimer) op.hideTimer = setTimeout(renderWbStrip, 8200);
+  strip.hidden = false;
+  strip.className = "wbstrip " + (op.running ? "" : op.state);
+  const icon = op.running ? h("span", { class: "spin" }) : h("span", { class: "dot " + (op.state === "done" ? "ok" : op.state === "failed" ? "bad" : "") });
+  const title = op.running ? op.title : op.state === "done" ? `${op.title}: ${op.result ?? "ready"}` : op.state === "failed" ? `${op.title} failed` : `${op.title}: stopped`;
+  const lastNote = op.notes[op.notes.length - 1];
+  put(strip,
+    h("span", { class: "title" }, icon, title, h("span", { class: "muted num", "data-op": op.running ? op.id : null }, secs(op.elapsed))),
+    op.steps.length ? h("ol", { class: "msteps" }, op.steps.map((s) => h("li", { class: s.state },
+      s.state === "active" ? h("span", { class: "spin" }) : s.state === "done" ? "✓" : s.state === "failed" ? "✕" : "·",
+      s.label, s.sub ? h("span", { class: "muted" }, `(${s.sub})`) : null))) : null,
+    h("span", { class: "grow" }),
+    h("button", { class: "btn small ghost", type: "button", onclick: () => openDrawer(true, op) }, "Details"),
+    !op.running && op.retry ? h("button", { class: "btn small primary", type: "button", onclick: () => { op.dismissed = true; op.retry.run(); } }, op.retry.label ?? "Try again") : null,
+    !op.running ? h("button", { class: "btn small ghost", type: "button", onclick: () => { op.dismissed = true; renderWbStrip(); } }, "Dismiss") : null,
+    op.state === "failed" ? h("div", { class: "detail" }, op.error) : op.state === "stopped" ? h("div", { class: "detail" }, op.result) : lastNote ? h("div", { class: "detail" }, lastNote) : null);
+}
+
 function callRow(c) {
   return h("li", { class: c.isPoll ? "poll" : "", "aria-current": App.selectedCall === c ? "true" : null, title: c.errorDetail ?? "",
     onclick: () => showExchange(c) },
@@ -1041,7 +1265,11 @@ function wireStatus() {
   $("exNewCreate").addEventListener("click", createExample);
   $("exNewCancel").addEventListener("click", () => ($("newex").hidden = true));
   $("exNewName").addEventListener("keydown", (e) => { if (e.key === "Enter") createExample(); if (e.key === "Escape") $("newex").hidden = true; });
-  Ops.onChange(() => { renderStatus(); renderExamples(); if (!$("drawer").hidden) renderOps(); App.emit("ops"); });
+  Ops.onChange(() => { renderStatus(); renderExamples(); renderWbStrip(); if (!$("drawer").hidden) renderOps(); App.emit("ops"); });
+  $("refreshBranches").addEventListener("click", refreshBranches);
+  // Opening the branch list refreshes it when it's more than a few seconds old.
+  for (const ev of ["mousedown", "focus"]) $("branch").addEventListener(ev, () => { if (Date.now() - (App.branchesAt ?? 0) > 15_000) refreshBranches(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - (App.branchesAt ?? 0) > 60_000) refreshBranches(); });
 }
 
 async function pollActivity() {

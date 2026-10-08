@@ -107,8 +107,8 @@ class Client:
         _, _, raw = self._request("GET", self._rev(wb, rev) + "/file", {"path": path}, timeout=300)
         return raw
 
-    def upload(self, wb, rev, path, data, branch, message=None):
-        """Overwrite (or add) one file as a new revision. Returns the new revision."""
+    def upload(self, wb, rev, path, data, message=None):
+        """Overwrite (or add) one file as a new revision of the workbench. Returns the new revision."""
         folder, name = path.rsplit("/", 1)
         boundary = uuid.uuid4().hex
         body = b"".join([
@@ -119,9 +119,16 @@ class Client:
             f"\r\n--{boundary}--\r\n".encode(),
         ])
         _, _, raw = self._request("POST", self._rev(wb, rev) + "/files",
-                                  {"folder": folder, "branch": branch, "message": message}, body,
+                                  {"folder": folder, "message": message}, body,
                                   {"Content-Type": f"multipart/form-data; boundary={boundary}"}, timeout=600)
         return json.loads(raw)["revision"]
+
+    def publish(self, wb, message=None):
+        """Push the workbench's changes to the git branch it was made from. Can take minutes.
+
+        Returns {outcome: published|drafted|…, gitBranch, headBefore, headAfter, newBranches, response}.
+        """
+        return self._json("POST", f"/api/workbenches/{wb}/publish", payload={"message": message}, timeout=20 * 60)
 
 
 def newer_or_same(a, b):

@@ -813,6 +813,51 @@ public sealed class PipelineClient : IDisposable
         }, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Ask the workbench to sync with its upstream git branch (PATCH …/workbenches/{wb} {type: "sync"}, as the
+    /// Scene Preview sample did). Returns the answer as text; a 202 with a job is waited for.
+    /// </summary>
+    public async Task<(int Status, string Body)> SyncWorkbenchAsync(string workbenchId, IProgress<string>? progress = null,
+        CancellationToken ct = default)
+    {
+        var url = Wb(workbenchId);
+        var (status, body) = await SendAsync(HttpMethod.Patch, url, new { type = "sync" }, null, "application/json",
+            TimeSpan.FromMinutes(10), ct).ConfigureAwait(false);
+        if (status == 202 && TryJobId(body) is { } job)
+        {
+            await WaitForJobAsync(job, TimeSpan.FromMinutes(15), progress, ct).ConfigureAwait(false);
+            return (status, System.Text.Encoding.UTF8.GetString(body));
+        }
+        if (status is < 200 or >= 300) throw PipelineApiException.FromResponse("PATCH", ShortPath(url), status, body);
+        return (status, System.Text.Encoding.UTF8.GetString(body));
+    }
+
+    /// <summary>
+    /// Publish the workbench's changes to its upstream git branch (POST …/publishes). Synchronous, can take
+    /// minutes; a 202 with a job is waited for. Pushes under a git token configured on Pipeline's side, not
+    /// the caller's. 409 publish_drafted means it landed on a draft branch instead: that's an outcome, not an
+    /// error. The answer's body isn't documented here, so it comes back as text.
+    /// </summary>
+    public async Task<PublishResult> PublishAsync(string workbenchId, string? message = null,
+        IProgress<string>? progress = null, CancellationToken ct = default)
+    {
+        var url = $"{Wb(workbenchId)}/publishes";
+        var (status, body) = await SendAsync(HttpMethod.Post, url, message is null ? new { } : new { message }, null,
+            "application/json", TimeSpan.FromMinutes(15), ct).ConfigureAwait(false);
+        if (status == 202 && TryJobId(body) is { } job)
+        {
+            progress?.Report($"publishing (job {job[..Math.Min(8, job.Length)]})");
+            var done = await WaitForJobAsync(job, TimeSpan.FromMinutes(15), progress, ct).ConfigureAwait(false);
+            return new PublishResult(done.Shown ?? "done", status, System.Text.Encoding.UTF8.GetString(body));
+        }
+        if (status is >= 200 and < 300)
+            return new PublishResult("published", status, System.Text.Encoding.UTF8.GetString(body));
+        var failure = PipelineApiException.FromResponse("POST", ShortPath(url), status, body);
+        if (status == 409 && failure.Code == "publish_drafted")
+            return new PublishResult("drafted", status, System.Text.Encoding.UTF8.GetString(body));
+        throw failure;
+    }
+
     /// <summary>Delete files (their .meta goes with them). Returns the new revision.</summary>
     public async Task<string> DeleteFilesAsync(string workbenchId, IReadOnlyList<string> paths, CancellationToken ct = default) =>
         Revision(await CommitBatchAsync(workbenchId, null, paths, ct).ConfigureAwait(false));

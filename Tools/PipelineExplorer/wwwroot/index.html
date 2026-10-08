@@ -31,10 +31,13 @@
       <button id="reload" class="btn small ghost" title="Re-read .env">Reload config</button>
     </div>
     <div class="config-row">
-      <label class="field-inline"><span>Branch</span><select id="branch"></select></label>
+      <label class="field-inline"><span>Branch</span><select id="branch" title="Branches of the repo (refreshed when you open this list)"></select></label>
+      <button id="refreshBranches" class="btn small ghost" type="button" title="Refresh the branches and workbenches" aria-label="Refresh the branches and workbenches">↻</button>
       <label class="field-inline"><span>Workbench</span><select id="workbench"></select></label>
       <button id="newWorkbench" class="btn small">New workbench</button>
       <button id="deleteWorkbench" class="btn small danger">Delete</button>
+      <button id="updateWorkbench" class="btn small primary" hidden title="Bring this workbench up to date with its git branch">Update from git…</button>
+      <button id="publishWorkbench" class="btn small" title="Push this workbench's changes to the git branch it was made from">Publish to git…</button>
       <span id="readiness" class="pill">no workbench</span>
       <span class="grow"></span>
       <label class="field-inline"><span>Environment</span><select id="environment"></select></label>
@@ -46,7 +49,11 @@
   </header>
 
   <nav class="examples" id="examples" role="tablist" aria-label="Examples"></nav>
-  <div id="banner" class="banner" hidden></div>
+  <div class="notices">
+    <div id="banner" class="banner" hidden></div>
+    <!-- Creating a workbench, or waiting for one: visible in every example until it's done (or dismissed). -->
+    <div id="wbStrip" class="wbstrip" hidden aria-live="polite"></div>
+  </div>
 
   <!-- Explorer: browse a workbench, inspect assets, preview them. -->
   <main class="view work explorer" id="view-explorer" data-example="explorer">

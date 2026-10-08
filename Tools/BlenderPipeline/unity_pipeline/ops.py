@@ -329,7 +329,7 @@ class Conflict(client.PipelineError):
 
 class UNITY_PIPELINE_OT_push(bpy.types.Operator):
     bl_idname = "unity_pipeline.push"
-    bl_label = "Push to Pipeline"
+    bl_label = "Push to workbench"
     bl_description = ("Export this scene in the asset's format and overwrite the asset in the workbench it came from, "
                       "as a new workbench revision (git isn't changed). Its .meta (and GUID) stay, so references in Unity keep working")
 
@@ -352,7 +352,8 @@ class UNITY_PIPELINE_OT_push(bpy.types.Operator):
         s = session(context.scene)
         self.message = f"Blender: update {os.path.basename(s['path'])}"
         self.overwrite = False
-        return context.window_manager.invoke_props_dialog(self, width=460, title="Push to Pipeline", confirm_text="Push")
+        return context.window_manager.invoke_props_dialog(self, width=460, title=f"Push to workbench {s['wb'][:8]} ({s['branch']})",
+                                                          confirm_text="Push")
 
     def draw(self, context):
         s = session(context.scene)
@@ -396,7 +397,7 @@ class UNITY_PIPELINE_OT_push(bpy.types.Operator):
                     raise Conflict(f"{name} changed on the workbench after you opened it (you have revision {s['rev']}, "
                                    f"it's at {current}). Reopen it, or push again with “Overwrite newer changes”.")
             job.step = f"uploading {len(data) / 1048576:.1f} MB"
-            revision = c.upload(wb, current, path, data, s["branch"], message)
+            revision = c.upload(wb, current, path, data, message)
             deadline = time.time() + 20 * 60
             while True:
                 job.step = f"revision {revision} is validating (about a minute)"
@@ -428,8 +429,78 @@ class UNITY_PIPELINE_OT_push(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class UNITY_PIPELINE_OT_publish(bpy.types.Operator):
+    bl_idname = "unity_pipeline.publish"
+    bl_label = "Publish to git"
+    bl_description = ("Push the workbench's changes to the git branch it was made from. Pipeline pushes with "
+                      "its own git token; if it can't push to the branch, the commit lands on a draft branch")
+
+    message: StringProperty(name="Commit message")
+
+    @classmethod
+    def poll(cls, context):
+        if not (S.wb and S.rev):
+            cls.poll_message_set("Pick a workbench that's ready first")
+            return False
+        if any(j.label.startswith("Publish") for j in S.jobs.values()):
+            cls.poll_message_set("A publish is already running")
+            return False
+        return True
+
+    def branch(self):
+        w = next((w for w in S.workbenches if w["workbenchId"] == S.wb), {})
+        return w.get("gitBranch")
+
+    def invoke(self, context, event):
+        if not self.branch():
+            self.report({"ERROR"}, f"Can't tell which git branch workbench {S.wb[:8]} was made from, so it isn't published from here")
+            return {"CANCELLED"}
+        self.message = f"Publish from Pipeline workbench {S.wb[:8]}"
+        return context.window_manager.invoke_props_dialog(self, width=480, title=f"Publish workbench {S.wb[:8]} to {self.branch()}?",
+                                                          confirm_text="Publish")
+
+    def draw(self, context):
+        col = self.layout.column()
+        col.label(text=f"Pushes this workbench's changes (revision {S.rev}) to {self.branch()} on GitHub.")
+        col.label(text="Pipeline pushes with its own git token, not your git identity.")
+        col.label(text="If it can't push to the branch, the commit lands on a draft branch.")
+        col.label(text="It can take a few minutes.")
+        col.separator()
+        col.prop(self, "message")
+
+    def execute(self, context):
+        wb, branch, message = S.wb, self.branch(), self.message.strip() or None
+
+        def work(job):
+            job.step = f"publishing to {branch} (a few minutes)"
+            return api().publish(wb, message)
+
+        def done(r):
+            before, after = r.get("headBefore"), r.get("headAfter")
+            if r.get("publishedRevision") == "":
+                say("INFO", f"Nothing to publish: workbench {wb[:8]} has no changes since it was made from {branch}.")
+            elif r.get("outcome") == "drafted":
+                drafts = ", ".join(r.get("newBranches") or [])
+                say("OK", f"Published to a draft branch{f' ({drafts})' if drafts else ''}, not {branch}. Merge it on GitHub.")
+            elif after and after != before:
+                say("OK", f"Published revision {r.get('publishedRevision') or '?'}: {branch} is now at {after[:7]} (was {(before or '?')[:7]})")
+            else:
+                say("INFO", f"Published, but {branch} didn't move (still {(before or '?')[:7]}): nothing new to publish?")
+
+        def failed(e):
+            text = str(e)
+            if any(k in text for k in ("could not read Username", "Authentication failed", "Permission denied")):
+                say("ERROR", f"Pipeline couldn't push to {branch}: it has no git credentials for this repository (the "
+                             "workbench was made from its public URL, without a VCS connection). Nothing changed on GitHub.")
+            else:
+                say("ERROR", f"Publish to {branch}: {text}")
+
+        run(f"Publish {wb[:8]}", work, done, failed)
+        return {"FINISHED"}
+
+
 classes = (
     UNITY_PIPELINE_OT_connect, UNITY_PIPELINE_OT_pick_branch, UNITY_PIPELINE_OT_pick_workbench,
     UNITY_PIPELINE_OT_open_explorer, UNITY_PIPELINE_OT_toggle, UNITY_PIPELINE_OT_select,
-    UNITY_PIPELINE_OT_open, UNITY_PIPELINE_OT_reopen, UNITY_PIPELINE_OT_push,
+    UNITY_PIPELINE_OT_open, UNITY_PIPELINE_OT_reopen, UNITY_PIPELINE_OT_push, UNITY_PIPELINE_OT_publish,
 )

@@ -52,7 +52,7 @@
     tree.select(path);
     CM.path = path;
     CM.diff = null;
-    CM.a = { branch: App.branchOf(App.wb), wb: App.wb, rev: App.revision, state: "reading" };
+    CM.a = { branch: App.gitBranchOf(App.wb) ?? App.branch, wb: App.wb, rev: App.revision, state: "reading" };
     CM.b = null;
     renderAll();
     readSide(CM.a, path);
