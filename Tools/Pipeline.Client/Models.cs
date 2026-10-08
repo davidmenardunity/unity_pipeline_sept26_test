@@ -118,6 +118,18 @@ public sealed record ImportSlot(JsonElement? Manifest, BatchItemError? Error)
     /// The artifact names in the manifest's <c>artifacts</c>. Staging lists plain
     /// strings; objects with a name/path are accepted too, in case that changes.
     /// </summary>
+    /// <summary>The manifest's content hash for one artifact (files[].contentHash), or null.</summary>
+    public string? ContentHashOf(string name)
+    {
+        if (Manifest is not { ValueKind: JsonValueKind.Object } m
+            || !m.TryGetProperty("files", out var files) || files.ValueKind != JsonValueKind.Array)
+            return null;
+        foreach (var f in files.EnumerateArray())
+            if (f.TryGetProperty("name", out var n) && n.GetString() == name && f.TryGetProperty("contentHash", out var h))
+                return h.GetString();
+        return null;
+    }
+
     public IReadOnlyList<string> ArtifactNames()
     {
         if (Manifest is not { ValueKind: JsonValueKind.Object } m

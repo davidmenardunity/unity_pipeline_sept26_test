@@ -542,8 +542,11 @@ function renderWorkbenchPicker(preferId) {
   const sel = $("workbench");
   put(sel, workbenchOptions(App.branch));
   const listed = [...onBranch, ...workbenchesUnknown()];
+  // The workbench last picked on this branch (it may be one whose branch isn't known).
+  const remembered = (readPref("workbenchByBranch") ?? {})[App.branch];
   const pick = listed.find((w) => w.workbenchId === preferId)
     ?? onBranch.find((w) => w.workbenchId === App.wb)
+    ?? listed.find((w) => w.workbenchId === remembered)
     ?? onBranch.find((w) => w.workbenchId === App.config.workbenchId)
     ?? onBranch[0];
   sel.value = pick?.workbenchId ?? "";
@@ -748,6 +751,7 @@ async function deleteWorkbench() {
 
 function selectWorkbench(id) {
   clearTimeout(App.pollTimer);
+  if (id && App.branch) writePref("workbenchByBranch", { ...(readPref("workbenchByBranch") ?? {}), [App.branch]: id });
   if (id === App.wb && App.revision) return;
   if (App.wbOp && App.wbOp.running && App.wbOp.wb && App.wbOp.wb !== id) App.wbOp.stop("You picked another workbench.");
   App.wb = id;
@@ -1285,6 +1289,30 @@ async function pollActivity() {
   } catch { /* the server is restarting; try again */ }
   setTimeout(pollActivity, 1200);
 }
+
+// Changes pushed to a workbench from elsewhere (the Blender add-on, another page) make new revisions. Check
+// every 10 s and move to the new one, so the files and viewers show what's there now.
+async function watchRevision() {
+  const wb = App.wb, rev = App.revision;
+  if (!wb || !rev || document.hidden || Ops.running().some((o) => o.kind === "workbench" || o.kind === "edit-save" || o.kind === "upload")) return;
+  try {
+    const res = await fetch(`/api/workbenches/${wb}`, { headers: { "X-Pipeline-Explorer": "1", "X-Poll": "1" } });
+    if (!res.ok || App.wb !== wb || App.revision !== rev) return;
+    const { readiness } = await res.json();
+    const latest = readiness?.settledRevision;
+    if (readiness?.readiness === "settling" && readiness.head && readiness.head !== rev)
+      readinessPill(`revision ${readiness.head} is validating`, "busy", "A change was pushed to this workbench; it shows once it validates.");
+    if (readiness?.readiness === "settled" && latest && latest !== rev && /^\d+$/.test(latest) && Number(latest) > Number(rev)) {
+      const op = Ops.start({ title: `Workbench ${short(wb)} moved to revision ${latest}`, kind: "revision", steps: [{ id: "open", label: `Read revision ${latest}` }] });
+      op.step("open", "active");
+      op.note(`A change was pushed to the workbench (from Blender, or another page). Was revision ${rev}.`);
+      readinessPill(`ready · revision ${latest}`, "ok");
+      await openRevision(wb, latest);
+      op.step("open", "done").done(`Now showing revision ${latest} (was ${rev})`);
+    }
+  } catch { /* the server is restarting; check again later */ }
+}
+setInterval(watchRevision, 10_000);
 
 // Elapsed times tick without re-rendering everything.
 function tick() {

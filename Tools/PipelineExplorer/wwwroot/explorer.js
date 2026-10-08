@@ -385,9 +385,12 @@
       over = h("div", {}, h("div", { style: "margin-bottom:8px" }, built ? "The archive for this asset is ready." : `Pipeline builds a WebGL content archive for ${fileName(s.path)}, then the viewer loads it.`),
         h("button", { class: "btn primary", onclick: () => (built ? showArchiveIfBuilt() : preview()) }, built ? "Load in the viewer" : "Build and preview"));
     }
+    let progressBox = !!run;
+    if (!over && playerStartingEl(v)) { over = playerStartingEl(v); progressBox = true; }
+    else if (run && playerStartingEl(v)) over = h("div", {}, playerStartingEl(v), h("div", { style: "height:8px" }), over);
     if (v?.failed) info.unshift(h("div", { class: "callout bad" }, h("span", { class: "dot bad" }), h("div", {}, h("p", {}, v.failed))));
     overlay.hidden = !over;
-    overlay.className = "stage-overlay" + (run ? "" : " center");
+    overlay.className = "stage-overlay" + (progressBox ? "" : " center");
     put(overlay, over);
     const built = s.guid && Archives.get(s.wb, s.rev, s.guid);
     put($("exStageBar"),

@@ -167,6 +167,26 @@
     renderBody();
   }
 
+  // The other branch's workbench gets new revisions too (a push from Blender): follow them.
+  setInterval(async () => {
+    const b = CM.b;
+    if (!b?.wb || !b.rev || b.state !== "ready" && b.state !== "missing" || document.hidden) return;
+    try {
+      const res = await fetch(`/api/workbenches/${b.wb}`, { headers: { "X-Pipeline-Explorer": "1", "X-Poll": "1" } });
+      if (!res.ok || CM.b !== b) return;
+      const latest = (await res.json()).readiness;
+      if (latest?.readiness !== "settled" || !latest.settledRevision || latest.settledRevision === b.rev) return;
+      if (/^\d+$/.test(latest.settledRevision) && Number(latest.settledRevision) < Number(b.rev)) return;
+      const was = b.rev;
+      Ops.start({ title: `${b.branch}: workbench ${short(b.wb)} moved to revision ${latest.settledRevision}`, kind: "revision", example: "compare" })
+        .note(`A change was pushed to it. Was revision ${was}.`).done(`Comparing with revision ${latest.settledRevision} (was ${was})`);
+      b.rev = latest.settledRevision;
+      CM.diff = null;
+      CM.viewers?.B.clear();
+      readSide(b, CM.path);
+    } catch { /* try again later */ }
+  }, 10_000);
+
   // ── rendering ────────────────────────────────────────────────────────────
 
   function renderAll() { renderHead(); renderStages(); renderBody(); }
@@ -212,17 +232,20 @@
       put(title, h("b", {}, side?.branch ?? "…"), side?.rev ? h("span", { class: "muted mono" }, `rev ${side.rev}`) : null, h("span", { class: "grow" }),
         showing ? h("span", { class: "chip" }, "showing") : null,
         side?.guid && canPreview(CM.path) && !run ? h("button", { class: "btn small ghost", onclick: () => { Archives.built.delete(k); v.clear(); preview(key, side, CM.path); } }, "Rebuild") : null);
-      let over = null;
+      let over = null, progressBox = false;
       if (!side || ["reading", "settling"].includes(side.state)) over = h("div", { class: "loading-line", style: "color:inherit;justify-content:center" }, h("span", { class: "spin" }), side?.state === "settling" ? "Waiting for the workbench…" : "Finding the asset…");
       else if (side.state === "no-workbench" || side.state === "no-branch") over = h("div", {}, "Pick a branch with a workbench, or create one, above.");
       else if (side.state === "missing") over = h("div", {}, h("b", {}, "Not on this branch."), h("div", {}, `${fileName(CM.path)} isn't in ${side.branch}'s workbench at this revision.`));
       else if (side.state === "error") over = h("div", {}, h("b", {}, "Couldn't read this side."), h("div", {}, side.error));
       else if (!canPreview(CM.path)) over = h("div", {}, h("b", {}, "No 3D preview for this file type."), h("div", {}, "The facts and the diff below compare it."));
-      else if (run) { over = h("div", { style: "text-align:left" }, stepsEl(run)); }
+      else if (run) { over = h("div", { style: "text-align:left" }, playerStartingEl(v), stepsEl(run)); progressBox = true; }
       else if (failed) over = h("div", {}, h("b", {}, "The preview failed."), h("div", { style: "margin:6px 0" }, failed.error?.split("\n")[0]),
         h("button", { class: "btn small primary", onclick: () => preview(key, side, CM.path) }, "Retry"));
       else if (!showing) over = h("button", { class: "btn primary", onclick: () => preview(key, side, CM.path) }, "Build and preview");
-      if (v.failed) over = h("div", {}, v.failed);
+      if (!over && playerStartingEl(v)) { over = playerStartingEl(v); progressBox = true; }
+      if (v.failed) { over = h("div", {}, v.failed); progressBox = false; }
+      // Progress sits at the bottom, out of the model's way; prompts with nothing behind them stay centered.
+      overlay.className = "stage-overlay" + (progressBox ? "" : " center");
       overlay.hidden = !over;
       put(overlay, over);
     }
@@ -232,6 +255,7 @@
     if (!CM.built || !CM.a) return;
     const { a, b } = CM;
     const rows = [
+      ["Revision", a.rev, b?.rev],
       ["GUID", a.guid, b?.guid],
       ["Size", a.info?.size != null ? fmtBytes(a.info.size) : null, b?.info?.size != null ? fmtBytes(b.info.size) : null],
       ["File hash", a.info?.fileHash, b?.info?.fileHash],
@@ -240,10 +264,25 @@
     const ready = a.state === "ready" && b?.state === "ready";
     const sameFile = ready && a.info?.fileHash && a.info.fileHash === b.info?.fileHash;
     const sameMeta = ready && a.info?.metafileHash && a.info.metafileHash === b.info?.metafileHash;
+    // The archives hold everything the asset uses (meshes, materials, textures): an unchanged prefab can
+    // still look different. Compare them once both are built.
+    const arch = (side) => side?.guid ? Archives.get(side.wb, side.rev, side.guid)?.contentHash : null;
+    const ha = arch(a), hb = arch(b);
+    const previewsKnown = canPreview(CM.path ?? "") && ha && hb;
+    const samePreview = previewsKnown && ha === hb;
+    rows.push(["Preview archive", ha ?? (canPreview(CM.path ?? "") ? "building…" : "—"), hb ?? (canPreview(CM.path ?? "") ? "building…" : "—")]);
     let summary = null;
-    if (ready) summary = h("div", { class: "callout " + (sameFile && sameMeta ? "ok" : "warn") }, h("span", { class: "dot " + (sameFile && sameMeta ? "ok" : "warn") }),
-      h("div", {}, h("p", {}, h("b", {}, sameFile && sameMeta ? "Identical on both branches." : sameFile ? "Same content; the .meta differs." : "The file differs between the branches.")),
-        a.guid !== b.guid ? h("p", {}, "The GUIDs differ: references to this asset won't carry over between the branches.") : null));
+    if (ready) {
+      const same = sameFile && sameMeta && (!canPreview(CM.path ?? "") || samePreview);
+      const pending = sameFile && sameMeta && canPreview(CM.path ?? "") && !previewsKnown;
+      const text = same ? "Identical on both branches, including what it uses."
+        : pending ? "The file is the same on both branches. Waiting for both previews to compare what it uses…"
+        : sameFile && sameMeta ? "The file is the same, but what it uses differs (a mesh, material or texture changed): see the viewers."
+        : sameFile ? "Same content; the .meta differs." : "The file differs between the branches.";
+      summary = h("div", { class: "callout " + (same ? "ok" : pending ? "" : "warn") }, h("span", { class: "dot " + (same ? "ok" : pending ? "" : "warn") }),
+        h("div", {}, h("p", {}, h("b", {}, text)),
+          a.guid !== b.guid ? h("p", {}, "The GUIDs differ: references to this asset won't carry over between the branches.") : null));
+    }
     else if (b?.state === "missing") summary = h("div", { class: "callout warn" }, h("span", { class: "dot warn" }), h("div", {}, h("p", {}, h("b", {}, `Only on ${a.branch}. `), `${b.branch} doesn't have ${fileName(CM.path)}.`)));
     else if (a.state === "missing") summary = h("div", { class: "callout warn" }, h("span", { class: "dot warn" }), h("div", {}, h("p", {}, h("b", {}, `Not on ${a.branch} at revision ${a.rev}.`))));
     const d = CM.diff;

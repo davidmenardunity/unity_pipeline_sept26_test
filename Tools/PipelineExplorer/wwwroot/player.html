@@ -21,6 +21,9 @@
     // Both end in PreviewClient.PreviewArchiveFromUrl on the PreviewRig.
     "use strict";
     const msg = document.getElementById("msg");
+    // Embedded (?embedded=1), the host page shows the progress and the player draws no UI of its own.
+    const embedded = new URLSearchParams(location.search).has("embedded");
+    if (embedded) msg.style.display = "none";
     const drop = document.getElementById("drop");
     let unity = null;
     const queue = [];

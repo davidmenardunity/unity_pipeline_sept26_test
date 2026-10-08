@@ -222,9 +222,11 @@ api.MapDelete("/workbenches/{wb}", async (Pipelines p, string wb, CancellationTo
 });
 
 // The workbench plus where it stands: readiness says which revision reads can use.
-api.MapGet("/workbenches/{wb}", async (Pipelines p, string wb, CancellationToken ct) =>
+api.MapGet("/workbenches/{wb}", async (Pipelines p, string wb, HttpRequest request, CancellationToken ct) =>
 {
     var c = p.Default;
+    // X-Poll: the page is only checking for new revisions; mark the calls as polls.
+    using var _ = request.Headers["X-Poll"] == "1" ? c.AsPolling() : null;
     var workbench = await c.GetWorkbenchAsync(wb, ct);
     WorkbenchReadiness? readiness = null;
     string? readinessError = null;
@@ -423,7 +425,8 @@ rev.MapPost("/player-archive", async (Pipelines p, string wb, string rev, Player
 
     var url = $"/api/workbenches/{wb}/environments/{env.EnvironmentId}/revisions/{Uri.EscapeDataString(rev)}/imports/artifact" +
               $"?address={Uri.EscapeDataString(address)}&name={Uri.EscapeDataString(artifact)}";
-    return Results.Ok(new { environmentId = env.EnvironmentId, platform, address, artifact, url, steps });
+    // contentHash covers everything in the archive (what the asset uses too), so two archives can be compared.
+    return Results.Ok(new { environmentId = env.EnvironmentId, platform, address, artifact, url, steps, contentHash = slot.ContentHashOf(artifact) });
 });
 
 envRev.MapPost("/imports", async (Pipelines p, string wb, string env, string rev, ImportRequest body, CancellationToken ct) =>

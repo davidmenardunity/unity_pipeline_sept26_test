@@ -26,7 +26,7 @@ class Viewer {
     this.startOp = Ops.start({ title: `Start the player${this.label ? ` (${this.label})` : ""}`, kind: "player", example,
       steps: [{ id: "load", label: "Download and start the Scene Preview player" }] });
     this.startOp.step("load", "active", "0%");
-    this.iframe.src = "player.html";
+    this.iframe.src = "player.html?embedded=1";   // the app draws the UI; the player draws none
   }
 
   load(url, name, key, example) {
@@ -44,7 +44,10 @@ class Viewer {
       const v = Viewer.all.find((x) => x.iframe.contentWindow === e.source);
       if (!v) return;
       const m = e.data ?? {};
-      if (m.type === "player-progress") v.startOp?.step("load", "active", `${Math.round(m.progress * 100)}%`);
+      if (m.type === "player-progress") {
+        v.progress = m.progress;
+        v.startOp?.step("load", "active", `${Math.round(m.progress * 100)}%`);
+      }
       else if (m.type === "player-error") { v.startOp?.fail(m.message); v.failed = m.message; App.emit("viewer", v); }
       else if (m.type === "player-ready") {
         v.ready = true;
@@ -54,6 +57,16 @@ class Viewer {
       }
     });
   }
+}
+
+// The player is downloading or starting: its progress, for the app's overlay (the player shows none).
+function playerStartingEl(viewer) {
+  if (!viewer || viewer.ready || viewer.failed || !viewer.iframe.getAttribute("src")) return null;
+  const pct = Math.round((viewer.progress ?? 0) * 100);
+  return h("div", { style: "display:flex;gap:8px;align-items:center" }, h("span", { class: "spin" }),
+    h("b", {}, "Starting the player"), h("span", { style: "opacity:.7" }, pct ? `${pct}%` : "downloading"),
+    h("span", { class: "grow" }),
+    viewer.startOp ? h("span", { class: "num", "data-op": viewer.startOp.running ? viewer.startOp.id : null }, secs(viewer.startOp.elapsed)) : null);
 }
 
 // Archives built this session, per workbench, revision and asset: the URL to load them from.

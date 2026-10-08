@@ -67,6 +67,9 @@ namespace Unity.Pipeline.Samples.ScenePreview
             m_Session = GetComponent<PreviewSession>();
             m_TokenProvider = GetComponent<IPreviewTokenProvider>();
             m_SignIn = GetComponent<IPreviewSignIn>();
+            // A host page draws the UI (see Host): no title, status line or picker here.
+            if (Host.Embedded)
+                enabled = false;
         }
 
         // With a local archive the picker opens at once (requests never reach Project Service). With a

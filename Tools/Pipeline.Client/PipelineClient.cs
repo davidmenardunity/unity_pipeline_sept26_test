@@ -36,6 +36,9 @@ public sealed class PipelineClient : IDisposable
     // panel can group them instead of listing every repeat.
     readonly AsyncLocal<bool> polling = new();
 
+    /// <summary>Calls made inside this scope are reported as polls (hidden in the activity by default).</summary>
+    public IDisposable AsPolling() => Polling();
+
     IDisposable Polling()
     {
         var previous = polling.Value;

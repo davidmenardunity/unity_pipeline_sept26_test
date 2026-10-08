@@ -87,7 +87,9 @@ namespace Unity.Pipeline.Samples.ScenePreview
 
         void Start()
         {
-            if (m_AutoStart)
+            // Embedded in a host page, the host owns the session (workbench, sign-in, discovery) and sends
+            // archives by URL; setting up here would only fail on WebGL and report it.
+            if (m_AutoStart && !Host.Embedded)
                 StartCoroutine(Run());
         }
 
@@ -394,6 +396,20 @@ namespace Unity.Pipeline.Samples.ScenePreview
             LastError = message;
             Debug.LogError($"[PreviewSession] {message}");
         }
+    }
+
+    /// <summary>
+    /// Whether a host drives the player: Pipeline Explorer embeds the WebGL build as player.html?embedded=1;
+    /// a desktop player can be started with -previewEmbedded. The host then draws all UI and requests
+    /// previews (PreviewClient.PreviewArchiveFromUrl), so the player draws none and runs no setup.
+    /// </summary>
+    static class Host
+    {
+        static bool? s_Embedded;
+
+        public static bool Embedded => s_Embedded ??=
+            Array.IndexOf(Environment.GetCommandLineArgs(), "-previewEmbedded") >= 0 ||
+            (Application.absoluteURL ?? "").Contains("embedded=1");
     }
 
     static class CommandLine
