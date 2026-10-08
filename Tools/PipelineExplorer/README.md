@@ -25,7 +25,9 @@ dotnet run --project Tools/PipelineExplorer
 ```
 
 Then open <http://127.0.0.1:5280>. After you put a fresh token in `.env`,
-press **Reload config**.
+press **Reload config**. A pasted token and the last org/project you picked are kept for your Windows
+account (`%LOCALAPPDATA%\PipelineExplorer`), so other clients, like the
+[Blender add-on](../BlenderPipeline), work as soon as the app starts.
 
 Stop the app before rebuilding: while it runs it locks
 `bin/Debug/net10.0/Pipeline.Client.dll`, and the build fails with MSB3027.

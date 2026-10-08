@@ -9,3 +9,8 @@ obj/
 
 # The Unity .gitignore above ignores every *.csproj (Unity regenerates its own).
 !*.csproj
+
+# Python bytecode (the Blender add-on) and its built package.
+__pycache__/
+*.pyc
+BlenderPipeline/dist/

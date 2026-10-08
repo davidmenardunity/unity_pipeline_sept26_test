@@ -1,0 +1,16 @@
+schema_version = "1.0.0"
+
+id = "unity_pipeline"
+version = "0.1.0"
+name = "Unity Pipeline"
+tagline = "Open Unity project assets from Pipeline and push edits back"
+maintainer = "David Menard"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:MIT"]
+
+[permissions]
+network = "Talks to Pipeline Explorer on this machine"
+files = "Caches downloaded assets and exports scenes to push them"

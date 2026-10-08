@@ -252,8 +252,8 @@ rev.MapGet("/file", async (Pipelines p, string wb, string rev, string path, Canc
     Bytes(await p.Default.GetFileAsync(wb, rev, path, null, ct), Path.GetFileName(path)));
 
 // Add (or overwrite) files in a folder, from a multipart form ("files"). All of them go
-// in one commit, so one new revision, which then validates; returns its id.
-rev.MapPost("/files", async (Pipelines p, string wb, string rev, string folder, string? branch, HttpRequest request,
+// in one commit, so one new revision (with `message`, if given), which then validates; returns its id.
+rev.MapPost("/files", async (Pipelines p, string wb, string rev, string folder, string? branch, string? message, HttpRequest request,
     CancellationToken ct) =>
 {
     if (!request.HasFormContentType) return Results.BadRequest(new { error = "expected a multipart form" });
@@ -273,7 +273,7 @@ rev.MapPost("/files", async (Pipelines p, string wb, string rev, string folder, 
     }
     var c = p.Default;
     var revision = await c.SaveFilesAsync(wb, rev, string.IsNullOrWhiteSpace(branch) ? c.Config.Branch : branch.Trim(),
-        files, null, ct);
+        files, string.IsNullOrWhiteSpace(message) ? null : message.Trim(), ct);
     return Results.Ok(new { revision, paths = files.Select(f => f.Path) });
 });
 
@@ -472,6 +472,9 @@ sealed class Pipelines
     // are protected by Windows for the current user), outside the repo.
     static readonly string SavedTokenPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PipelineExplorer", "token.dat");
+    // The last org/project picked in the page, so other clients (the Blender add-on) see it after a restart.
+    static readonly string SavedSelectionPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PipelineExplorer", "selection.json");
 
     public Pipelines(IWebHostEnvironment host, IDataProtectionProvider dataProtection, ILogger<Pipelines> log)
     {
@@ -481,6 +484,35 @@ sealed class Pipelines
         config = Load();
         pastedToken = ReadSavedToken();
         if (pastedToken is not null) config = config with { Token = pastedToken };
+        if (ReadSavedSelection() is { } saved && (string.IsNullOrEmpty(config.OrganizationId) || string.IsNullOrEmpty(config.ProjectId)))
+            config = config with { OrganizationId = saved.OrganizationId, ProjectId = saved.ProjectId };
+    }
+
+    Selection? ReadSavedSelection()
+    {
+        try
+        {
+            return File.Exists(SavedSelectionPath)
+                ? System.Text.Json.JsonSerializer.Deserialize<Selection>(File.ReadAllText(SavedSelectionPath)) : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            log.LogWarning("Couldn't read the saved org/project ({Message}).", e.Message);
+            return null;
+        }
+    }
+
+    void SaveSelection(Selection selection)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(SavedSelectionPath)!);
+            File.WriteAllText(SavedSelectionPath, System.Text.Json.JsonSerializer.Serialize(selection));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            log.LogWarning("Couldn't save the org/project pick ({Message}).", e.Message);
+        }
     }
 
     string? ReadSavedToken()
@@ -538,6 +570,8 @@ sealed class Pipelines
     {
         config = Load();
         if (pastedToken is not null) config = config with { Token = pastedToken };
+        if (ReadSavedSelection() is { } saved && (string.IsNullOrEmpty(config.OrganizationId) || string.IsNullOrEmpty(config.ProjectId)))
+            config = config with { OrganizationId = saved.OrganizationId, ProjectId = saved.ProjectId };
         DropClients();
     }
 
@@ -569,6 +603,7 @@ sealed class Pipelines
     /// <summary>Use another org/project. Saved workbench/environment ids belong to the old one, so they go.</summary>
     public void Select(string organizationId, string projectId)
     {
+        SaveSelection(new Selection(organizationId, projectId));
         if (organizationId == config.OrganizationId && projectId == config.ProjectId) return;
         config = config with { OrganizationId = organizationId, ProjectId = projectId, WorkbenchId = null, EnvironmentId = null };
         DropClients();
