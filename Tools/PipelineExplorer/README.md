@@ -30,25 +30,50 @@ press **Reload config**.
 Stop the app before rebuilding: while it runs it locks
 `bin/Debug/net10.0/Pipeline.Client.dll`, and the build fails with MSB3027.
 
+The viewers embed the Scene Preview WebGL player from `Builds/ScenePreview_WebGL` (build the
+`ScenePreview_WebGL` profile there as a release build, then restart the app).
+
+## Layout
+
+- **Top configuration**: org, project, token, project service, branch, workbench, environment.
+  Every example works on these.
+- **Example tabs**: one way to use Pipeline each. **+ New example** adds a placeholder tab
+  (saved in this browser) describing how to build one.
+  - **Explorer** (`explorer.js`): browse a workbench. The asset panel on the right (drag its edge
+    to resize; double-click it for half the window) has **Details** (facts, `.meta`, source, cloud
+    preview image, import results), **Viewer** (the player, with **Preview on select**) and
+    **Calls** (the calls made for that asset). Picking an asset updates the whole panel; reads for
+    the previous one stop, and a preview being built finishes in the background.
+  - **Edit a project** (`edit.js`, `unityyaml.js`): open a `.prefab`, `.unity`, `.asset` or `.mat`,
+    pick an object, and edit its values. Saving writes the file back as one new workbench revision
+    (`POST /api/…/save`, a transaction with your message) and follows it until it validates. Only
+    the characters of changed values are replaced; values Unity wraps over several lines are
+    shown but not editable.
+  - **Compare branches** (`compare.js`): pick an asset, then a branch to compare with. That branch
+    is read through its own workbench (create one from the page if it has none). Two viewers show
+    the asset side by side, with its facts and a text diff.
+- **Status bar**: what is running (step, progress, elapsed) or the last result; **Activity** opens
+  every operation with the calls it made (the page sends `X-Op`, the server tags each call).
+
 ## What maps to what
 
 | In the page | API |
 | --- | --- |
 | **Org ID** / **Project** | `GET staging.services.unity.com/api/unity/legacy/v1/organizations/{org}` (name) and `…/{org}/projects?limit&offset` (internal host; archived projects hidden). The pick is remembered in this browser; `.env` isn't changed. **Enter project ID…** takes any UUID. |
-| Progress panel | Narrates long waits: project service start-up steps, workbench creation, validation (readiness, head, validation status), with a timer and a log of state changes. |
+| Status bar / **Activity** | Every action is an operation with steps: project service start-up, workbench creation, validation (head, validation status), uploads, saves, previews. Activity lists them with the calls each made. |
 | Drop files on a folder | Upload as blobs, then `POST …/batch` into existing folders (a transaction when the folder is new): one new revision, which the panel follows until it validates. Then the tree shows it and selects the file. `.meta` files and folders can't be dropped. |
-| Project service pill / **Start service** | `GET`/`POST …/branches/{branch}/projectservice/status|start` (internal host). One service per branch. |
+| Project service pill / **Start service** | `GET …/projectservice/status`, `POST …/projectservice/start` (internal host). If the service is down when the workbenches are listed, the page follows its start and lists them again. |
 | **Branch** | Branches from `git ls-remote` on `GIT_REPO_URL`, plus the branches of your workbenches. **Other…** takes any name. |
-| **Workbench** | `GET …/workbenches`, filtered to the branch. **Start workbench on branch**: starts the service if needed, then `POST …/workbenches {type:git, branch, repo}`. **Delete**: `DELETE …/workbenches/{wb}`. |
-| Readiness text | `GET …/readiness` + `GET …/workbenches/{wb}` (validation). Reads are pinned to the settled revision. |
+| **Workbench** | `GET …/workbenches`, filtered to the branch. **New workbench**: starts the service if needed, then `POST …/workbenches {type:git, branch, repo}`. **Delete**: `DELETE …/workbenches/{wb}`. |
+| Readiness pill | `GET …/workbenches/{wb}/head` + `GET …/workbenches/{wb}` (validation). Reads are pinned to the settled revision. |
 | **Environment** / **Add** | `GET`/`POST …/workbenches/{wb}/environments`. Previews and imports need one. |
 | File tree | `GET …/revisions/{rev}/file-tree/{path}` (path as one `%2F` segment). |
 | Selecting a file | `POST …/revisions/{rev}/asset-guid`, `GET …/assets/{guid}` |
 | **.meta file** | `GET …/revisions/{rev}/assets/{guid}/meta` |
 | **Source** | `GET …/revisions/{rev}/files/{path}` |
 | **Preview** | `POST …/environments/{env}/revisions/{rev}/previews` → job → `GET …/previews/{guid}?allowAsync=false` |
-| **Content files** | `POST …/environments/{env}/revisions/{rev}/imports {addresses:[G:{guid}]}` (or `T:{guid}+{importer type}`), then **Fetch**: `GET …/imports/{address}/{artifact}` |
-| API calls panel | Every call the server made. Select one for the full exchange (token redacted) or **Copy as curl**. |
+| **Import results** | `POST …/environments/{env}/revisions/{rev}/imports {addresses:[G:{guid}]}` (or `T:{guid}+{importer type}`), then **Fetch**: `GET …/imports/{address}/{artifact}` |
+| Exchange (in **Activity** and the **Calls** tab) | Every call the server made, grouped by operation. Select one for the full exchange (token redacted) or **Copy as curl**. |
 
 Known staging limits (see the pipeline playground's README): the first import
 requests after a cold start can answer `409 revision_not_validated` for

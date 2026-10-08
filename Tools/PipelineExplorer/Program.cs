@@ -34,6 +34,9 @@ app.Use(async (ctx, next) =>
         await ctx.Response.WriteAsJsonAsync(new { error = "missing X-Pipeline-Explorer header" });
         return;
     }
+    // The page names the operation a request belongs to, so the pipeline calls it causes can be grouped under it.
+    var op = ctx.Request.Headers["X-Op"].ToString();
+    Operation.Current.Value = op.Length is > 0 and <= 40 ? op : null;
     try
     {
         await next();
@@ -238,6 +241,10 @@ rev.MapGet("/asset", async (Pipelines p, string wb, string rev, string path, Can
     return new { path, guid, info };
 });
 
+// An asset by GUID (its path, hashes, size): resolves a reference to another asset.
+rev.MapGet("/assets/{guid}", async (Pipelines p, string wb, string rev, string guid, CancellationToken ct) =>
+    await p.Default.GetAssetAsync(wb, rev, guid, ct));
+
 rev.MapGet("/meta", async (Pipelines p, string wb, string rev, string guid, CancellationToken ct) =>
     Bytes(await p.Default.GetMetaAsync(wb, rev, guid, null, ct), $"{guid}.meta"));
 
@@ -268,6 +275,20 @@ rev.MapPost("/files", async (Pipelines p, string wb, string rev, string folder, 
     var revision = await c.SaveFilesAsync(wb, rev, string.IsNullOrWhiteSpace(branch) ? c.Config.Branch : branch.Trim(),
         files, null, ct);
     return Results.Ok(new { revision, paths = files.Select(f => f.Path) });
+});
+
+// Save edited text files (e.g. a prefab whose values were changed) as one new revision, with a message.
+rev.MapPost("/save", async (Pipelines p, string wb, string rev, SaveRequest body, CancellationToken ct) =>
+{
+    if (body.Files is not { Count: > 0 }) return Results.BadRequest(new { error = "no files to save" });
+    if (body.Files.Any(f => string.IsNullOrWhiteSpace(f.Path) || f.Path.EndsWith(".meta", StringComparison.OrdinalIgnoreCase)))
+        return Results.BadRequest(new { error = "every file needs a path, and .meta files are the pipeline's own" });
+    var c = p.Default;
+    var files = body.Files.Select(f => (f.Path.Trim('/'), new UTF8Encoding(false).GetBytes(f.Text ?? ""))).ToList();
+    var message = string.IsNullOrWhiteSpace(body.Message) ? null : body.Message.Trim();
+    var revision = await c.SaveFilesAsync(wb, rev, string.IsNullOrWhiteSpace(body.Branch) ? c.Config.Branch : body.Branch.Trim(),
+        files, message, ct);
+    return Results.Ok(new { revision, paths = files.Select(f => f.Item1) });
 });
 
 // ── environment reads: previews and imports ─────────────────────────────────
@@ -371,7 +392,15 @@ static IResult Bytes(byte[] bytes, string fileName)
 record NewWorkbench(string Branch, string? Repository);
 
 record ActivityItem(long Id, DateTimeOffset At, string Method, string Path, int Status, int Ms, string? RequestId,
-    string? ErrorCode, string? ErrorDetail, bool IsPoll, string? Exchange, string? Curl);
+    string? ErrorCode, string? ErrorDetail, bool IsPoll, string? Exchange, string? Curl, string? Op);
+record SaveRequest(List<SavedFile>? Files, string? Message, string? Branch);
+record SavedFile(string Path, string? Text);
+
+/// <summary>The page operation the current request belongs to (its X-Op header), for grouping activity.</summary>
+static class Operation
+{
+    public static readonly AsyncLocal<string?> Current = new();
+}
 record NewEnvironment(string? Platform);
 record Selection(string OrganizationId, string ProjectId);
 record PastedToken(string? Token);
@@ -579,7 +608,7 @@ sealed class Pipelines
             if (text is { Length: > 16_000 }) text = text[..16_000] + "\n… (trimmed)";
             activity.Add(new ActivityItem(++lastActivity, call.At, call.Method, call.Path, call.Status,
                 (int)call.Duration.TotalMilliseconds, call.RequestId, call.ErrorCode, call.ErrorDetail,
-                call.IsPoll, text, call.Exchange?.ToCurl()));
+                call.IsPoll, text, call.Exchange?.ToCurl(), Operation.Current.Value));
             if (activity.Count > 300) activity.RemoveRange(0, activity.Count - 300);
         }
     }

@@ -4,118 +4,154 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Pipeline Explorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <header class="bar">
-    <strong>Pipeline Explorer</strong>
-    <label>Org ID
-      <input id="org" size="14" placeholder="numeric org id" title="Your org's numeric id (unity cloud org list)">
-    </label>
-    <button id="loadOrg">Load</button>
-    <span id="orgName" class="dim"></span>
-    <label>Project
-      <select id="projectSel"></select>
-    </label>
-    <button id="token" class="pill" title="Paste a bearer token">no token</button>
-    <button id="changeToken" title="Paste a new bearer token (saved encrypted for your Windows account)">Bearer token…</button>
-    <span class="grow"></span>
-    <span id="service" class="pill">project service …</span>
-    <button id="startService">Start service</button>
-    <button id="reload" title="Re-read pipeline-onboard.config (after set-token.sh)">Reload config</button>
+  <!-- Top configuration: who and what the examples work on. -->
+  <header class="config">
+    <div class="config-row">
+      <div class="brand">
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 5h6v8H2zM10 2h6v6h-6zM10 10h6v6h-6z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        Pipeline Explorer
+      </div>
+      <label class="field-inline"><span>Org</span>
+        <input id="org" size="14" placeholder="numeric org id" title="Your org's numeric id">
+      </label>
+      <button id="loadOrg" class="btn small">Load</button>
+      <span id="orgName" class="muted small"></span>
+      <label class="field-inline"><span>Project</span><select id="projectSel"></select></label>
+      <span class="grow"></span>
+      <button id="service" class="pill" title="Project service">project service …</button>
+      <button id="startService" class="btn small">Start service</button>
+      <button id="token" class="pill" title="Paste a bearer token">no token</button>
+      <button id="changeToken" class="btn small" title="Paste a new bearer token (saved encrypted for your Windows account)">Bearer token…</button>
+      <button id="reload" class="btn small ghost" title="Re-read .env">Reload config</button>
+    </div>
+    <div class="config-row">
+      <label class="field-inline"><span>Branch</span><select id="branch"></select></label>
+      <label class="field-inline"><span>Workbench</span><select id="workbench"></select></label>
+      <button id="newWorkbench" class="btn small">New workbench</button>
+      <button id="deleteWorkbench" class="btn small danger">Delete</button>
+      <span id="readiness" class="pill">no workbench</span>
+      <span class="grow"></span>
+      <label class="field-inline"><span>Environment</span><select id="environment"></select></label>
+      <select id="platform" aria-label="Platform for a new environment">
+        <option>Windows64</option><option>Linux64</option><option>MacOS64</option><option>iOS</option><option>Android</option><option>WebGL</option>
+      </select>
+      <button id="addEnvironment" class="btn small">Add</button>
+    </div>
   </header>
 
+  <nav class="examples" id="examples" role="tablist" aria-label="Examples"></nav>
   <div id="banner" class="banner" hidden></div>
 
-  <section class="bar controls">
-    <label>Branch
-      <select id="branch"></select>
-    </label>
-    <label>Workbench
-      <select id="workbench"></select>
-    </label>
-    <button id="newWorkbench">Start workbench on branch</button>
-    <button id="deleteWorkbench" class="danger">Delete</button>
-    <span id="readiness" class="dim"></span>
-    <span class="grow"></span>
-    <label>Environment
-      <select id="environment"></select>
-    </label>
-    <select id="platform">
-      <option>Windows64</option><option>Linux64</option><option>MacOS64</option><option>iOS</option><option>Android</option><option>WebGL</option>
-    </select>
-    <button id="addEnvironment">Add</button>
-  </section>
-
-  <section id="progress" class="progress" hidden>
-    <div class="progress-head">
-      <span class="spinner" id="progressSpin"></span>
-      <strong id="progressTitle"></strong>
-      <span id="progressElapsed" class="dim"></span>
-      <span class="grow"></span>
-      <span id="progressHint" class="dim small"></span>
-    </div>
-    <ol id="progressSteps" class="steps"></ol>
-    <div id="progressDetail" class="dim small"></div>
-    <details>
-      <summary class="dim small">State changes</summary>
-      <ol id="progressLog" class="progress-log"></ol>
-    </details>
-  </section>
-
-  <main>
-    <aside class="pane tree-pane">
-      <div class="pane-head">
-        <span>Files <span id="revLabel" class="dim"></span></span>
-        <label class="dim small"><input type="checkbox" id="showMeta"> .meta</label>
-      </div>
-      <ul id="tree" class="tree"></ul>
+  <!-- Explorer: browse a workbench, inspect assets, preview them. -->
+  <main class="view work explorer" id="view-explorer" data-example="explorer">
+    <aside class="col files" aria-label="Files">
+      <div class="col-head">Files <span class="grow"></span><span class="mono plain" id="exRev"></span></div>
+      <ul class="tree" id="exTree"></ul>
     </aside>
-
-    <section class="pane details">
-      <div id="empty" class="dim">Pick a workbench, wait for it to settle, then pick a file.</div>
-      <div id="selection" hidden>
-        <h2 id="selPath"></h2>
-        <dl id="selFacts" class="facts"></dl>
-        <div class="actions">
-          <button id="previewInPlayer" class="primary" title="Builds a WebGL content archive for this asset in the pipeline and loads it in the Scene Preview player below">Preview in player</button>
-          <span class="sep"></span>
-          <button data-artifact="meta">.meta file</button>
-          <button data-artifact="source">Source</button>
-          <button data-artifact="preview">Preview</button>
-          <span class="sep"></span>
-          <select id="importMode" title="Which import result">
-            <option value="G">Primary import (G:)</option>
-            <option value="T">Importer type (T:)</option>
-          </select>
-          <input id="importerType" placeholder="Unity.Pipeline.Samples.ScenePreview.Importer.PreviewContentImporter" title="Full type name of the importer to run, namespace included. Empty: the Scene Preview content-archive importer." hidden>
-          <button data-artifact="imports">Content files</button>
-        </div>
-        <div id="playerPane" class="player-pane" hidden>
-          <iframe id="player" title="Scene Preview player" allow="fullscreen"></iframe>
-        </div>
-        <div id="results"></div>
+    <section class="col folder" aria-label="Folder" id="exFolder">
+      <div class="folder-head">
+        <div class="path" id="exPath">Pick a folder</div>
+        <span class="grow"></span>
+        <label class="switch"><input type="checkbox" id="showMeta"> .meta files</label>
+        <input class="filter" id="exFilter" type="search" placeholder="Filter this folder" aria-label="Filter this folder">
       </div>
+      <div class="rows-head" aria-hidden="true"><span></span><span>Name</span><span>Preview archive</span></div>
+      <ul class="rows" id="exRows" role="listbox" aria-label="Folder contents"></ul>
+      <p class="drop-hint muted small">Drop files on a folder (here or in the tree) to add them as a new revision.</p>
+    </section>
+    <div class="splitter" id="exSplit" role="separator" aria-orientation="vertical" aria-label="Resize the asset panel" tabindex="0"
+      title="Drag to resize the asset panel. Double-click to reset it to half the window."></div>
+    <aside class="col inspector" aria-label="Asset" id="exInspector">
+      <div class="insp-empty muted" id="exEmpty">Pick a file to see its details, preview it, and see its calls.</div>
+      <div id="exAsset" hidden>
+        <div class="insp-head">
+          <div class="insp-title"><span class="kind" id="exKind"></span><h1 id="exName"></h1></div>
+          <div class="insp-sub"><span class="mono" id="exGuid"></span><button class="copy" id="exCopyGuid" type="button">Copy GUID</button></div>
+          <div class="tabs" role="tablist">
+            <button class="tab" role="tab" data-tab="details" type="button">Details</button>
+            <button class="tab" role="tab" data-tab="viewer" type="button">Viewer <span id="exViewerBadge"></span></button>
+            <button class="tab" role="tab" data-tab="calls" type="button">Calls <span class="badge num" id="exCallsBadge">0</span></button>
+          </div>
+        </div>
+        <div class="insp-body" id="exDetails" data-panel="details"></div>
+        <div class="insp-body" id="exViewer" data-panel="viewer" hidden>
+          <div class="stage-wrap">
+            <div class="stage"><iframe id="exPlayer" title="Scene Preview player" allow="fullscreen"></iframe><div class="stage-overlay" id="exStageOverlay" hidden></div></div>
+            <div class="stage-bar" id="exStageBar"></div>
+          </div>
+          <div id="exViewerInfo"></div>
+        </div>
+        <div class="insp-body" id="exCalls" data-panel="calls" hidden></div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Edit a project: change values in prefabs, scenes and ScriptableObjects. -->
+  <main class="view work edit" id="view-edit" data-example="edit" hidden>
+    <aside class="col files" aria-label="Editable files">
+      <div class="col-head">Prefabs, scenes, assets <span class="grow"></span><span class="mono plain" id="edRev"></span></div>
+      <ul class="tree" id="edTree"></ul>
+    </aside>
+    <section class="col objects" aria-label="Objects" id="edObjects">
+      <div class="insp-empty muted">Pick a .prefab, .unity, .asset or .mat file. Its objects show here, and their values on the right.</div>
+    </section>
+    <aside class="col inspector" aria-label="Values" id="edInspector">
+      <div class="insp-empty muted">Pick an object to edit its values.</div>
+    </aside>
+  </main>
+
+  <!-- Compare branches: one asset, two branches, two viewers. -->
+  <main class="view work compare" id="view-compare" data-example="compare" hidden>
+    <aside class="col files" aria-label="Files">
+      <div class="col-head">Files <span class="grow"></span><span class="mono plain" id="cmRev"></span></div>
+      <ul class="tree" id="cmTree"></ul>
+    </aside>
+    <section class="col comparison" aria-label="Comparison" id="cmMain">
+      <div class="insp-empty muted">Pick an asset, then a branch to compare it with.</div>
     </section>
   </main>
 
-  <section class="pane activity">
-    <div class="pane-head">
-      <span>API calls</span>
-      <label class="dim small"><input type="checkbox" id="showPolls"> show polling</label>
-    </div>
-    <div class="activity-body">
-      <ol id="calls"></ol>
-      <div class="exchange">
-        <div class="exchange-head">
-          <button id="copyCurl" disabled>Copy as curl</button>
-          <span class="dim small">curl uses $UNITY_JWT: run <code>source pipeline-onboard.config</code> first</span>
-        </div>
-        <pre id="exchange" class="dim">Select a call to see the full request and response (token redacted).</pre>
+  <main class="view blank" id="view-custom" hidden></main>
+
+  <footer class="status" id="status" aria-live="polite">
+    <div class="now" id="now"></div>
+    <div class="counts" id="counts"></div>
+    <button class="btn small" id="activityBtn" type="button" aria-expanded="false">Activity</button>
+  </footer>
+
+  <section class="drawer" id="drawer" hidden aria-label="Activity">
+    <div class="col">
+      <div class="col-head">Operations <span class="grow"></span>
+        <label class="switch plain"><input type="checkbox" id="showPolls"> polling</label>
       </div>
+      <ol class="ops" id="ops"></ol>
+    </div>
+    <div class="col">
+      <div class="col-head">Exchange <span class="grow"></span><button class="btn small" id="copyCurl" type="button" disabled>Copy as curl</button></div>
+      <pre class="code exchange" id="exchange">Select a call to see the full request and response. The token is redacted.</pre>
     </div>
   </section>
 
+  <div class="popover newex" id="newex" hidden role="dialog" aria-label="New example">
+    <h3>New example</h3>
+    <label>Name <input id="exNewName" maxlength="40" placeholder="Batch reimport"></label>
+    <label>What it shows <textarea id="exNewDesc" rows="2" maxlength="160" placeholder="Reimport every texture in a folder for Android and compare sizes."></textarea></label>
+    <div class="err" id="exNewErr" hidden>Give the example a name.</div>
+    <div class="row-end"><button class="btn small" id="exNewCancel" type="button">Cancel</button><button class="btn small primary" id="exNewCreate" type="button">Add tab</button></div>
+  </div>
+
+  <script src="unityyaml.js"></script>
   <script src="app.js"></script>
+  <script src="viewer.js"></script>
+  <script src="explorer.js"></script>
+  <script src="edit.js"></script>
+  <script src="compare.js"></script>
+  <script>App.boot();</script>
 </body>
 </html>

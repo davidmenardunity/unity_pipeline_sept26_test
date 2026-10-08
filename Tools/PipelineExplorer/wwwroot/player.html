@@ -49,7 +49,11 @@
 
     (async () => {
       const info = await (await fetch("/api/player", { headers: { "X-Pipeline-Explorer": "1" } })).json();
-      if (!info.available) { msg.textContent = info.message; return; }
+      if (!info.available) {
+        msg.textContent = info.message;
+        parent.postMessage({ type: "player-error", message: info.message }, location.origin);
+        return;
+      }
       await new Promise((ok, fail) => {
         const s = document.createElement("script");
         s.src = info.loaderUrl;
@@ -66,11 +70,17 @@
         productName: "Scene Preview",
         productVersion: "1.0",
         showBanner: (text, type) => console[type === "error" ? "error" : "warn"](text),
-      }, (p) => { msg.textContent = `Loading the player… ${Math.round(p * 100)}%`; });
+      }, (p) => {
+        msg.textContent = `Loading the player… ${Math.round(p * 100)}%`;
+        parent.postMessage({ type: "player-progress", progress: p }, location.origin);
+      });
       msg.remove();
       parent.postMessage({ type: "player-ready" }, location.origin);
       queue.splice(0).forEach(load);
-    })().catch((e) => { msg.textContent = `The player didn't start: ${e.message}`; });
+    })().catch((e) => {
+      msg.textContent = `The player didn't start: ${e.message}`;
+      parent.postMessage({ type: "player-error", message: `The player didn't start: ${e.message}` }, location.origin);
+    });
   </script>
 </body>
 </html>
