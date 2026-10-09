@@ -35,7 +35,10 @@
     // Assets dragged from the app's file tree: tell the app where they landed (0..1 across the view).
     const drop = document.getElementById("drop");
     const isAsset = (e) => [...(e.dataTransfer?.types ?? [])].includes(ASSET);
-    addEventListener("dragover", (e) => { if (!isAsset(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; drop.style.display = "block"; });
+    // Firefox takes a drop only where both dragenter and dragover are cancelled (Chromium needs dragover alone).
+    const accept = (e) => { if (!isAsset(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; drop.style.display = "block"; };
+    addEventListener("dragenter", accept);
+    addEventListener("dragover", accept);
     addEventListener("dragleave", () => { drop.style.display = "none"; });
     addEventListener("drop", (e) => {
       drop.style.display = "none";

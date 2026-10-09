@@ -152,7 +152,7 @@ body.resizing iframe { pointer-events: none; }
   display: flex; gap: 6px; align-items: center; color: var(--ink); white-space: nowrap; cursor: pointer;
 }
 .tree .item:hover { background: var(--sunk); }
-.tree .item[draggable="true"] { cursor: grab; user-select: none; }
+.tree .item[draggable="true"] { cursor: grab; }
 .tree .item[draggable="true"]:active { cursor: grabbing; }
 .tree .item[aria-current="true"] { background: var(--accent-soft); font-weight: 600; }
 .tree .item.meta { color: var(--muted); }
