@@ -156,7 +156,7 @@ namespace Unity.Pipeline.PreviewAnnotations
 
         // The target the Collaboration dashboard lists comments under (the SDK's AssetReference would make
         // assets/projects/…, which it doesn't show).
-        StringReference Asset => new(new ProjectId(m_ProjectId), $"unity/project/{m_ProjectId}/assets/{m_AssetId}");
+        StringReference Asset => new(new ProjectId(m_ProjectId), $"unity/projects/{m_ProjectId}/assets/{m_AssetId}");
 
         async Task<object> Load()
         {

@@ -531,13 +531,13 @@ api.MapMethods("/collab/{**path}", ["GET", "POST", "PUT", "PATCH", "DELETE"], as
         await request.Body.CopyToAsync(buffer, ct);
         body = buffer.ToArray();
     }
-    // Players built before the switch target comments at assets/projects/…, which the Collaboration dashboard
-    // doesn't list: send them to unity/project/… like the rest.
+    // Collaboration takes unity/projects/{project}/assets/{asset}. Players built earlier target
+    // assets/projects/… (the SDK's AssetReference) or unity/project/…: send them to the right one.
     if (body is { Length: > 0 })
     {
         var text = Encoding.UTF8.GetString(body);
-        if (text.Contains("\"assets/projects/", StringComparison.Ordinal))
-            body = Encoding.UTF8.GetBytes(text.Replace("\"assets/projects/", "\"unity/project/"));
+        var fixedText = text.Replace("\"assets/projects/", "\"unity/projects/").Replace("\"unity/project/", "\"unity/projects/");
+        if (fixedText != text) body = Encoding.UTF8.GetBytes(fixedText);
     }
     // The SDK's URLs carry the API prefix too (…/api/collab/collaboration/v1/projects/…).
     var rest = path.StartsWith("collaboration/v1/", StringComparison.Ordinal) ? path["collaboration/v1/".Length..] : path;
