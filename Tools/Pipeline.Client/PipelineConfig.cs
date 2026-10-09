@@ -22,6 +22,12 @@ public sealed record PipelineConfig(
     string? EnvironmentId,
     string? SourcePath)
 {
+    /// <summary>
+    /// A Unity Cloud token for Collaboration (annotations), which doesn't accept the Genesis tokens the
+    /// pipeline takes. Without one, the client tries exchanging <see cref="Token"/>.
+    /// </summary>
+    public string? CollaborationToken { get; init; }
+
     // KEY="value" (bash config) or KEY=value (a .env file, as VS Code's REST Client reads it).
     static readonly Regex Assignment = new(@"^([A-Z_][A-Z0-9_]*)=(?:""([^""]*)""|([^\s""#]*))", RegexOptions.Multiline);
 
@@ -90,7 +96,7 @@ public sealed record PipelineConfig(
 }
 
 /// <summary>What the app can tell from the bearer token without calling anything.</summary>
-public sealed record TokenInfo(string Kind, DateTimeOffset? ExpiresAt, string? GenesisId)
+public sealed record TokenInfo(string Kind, DateTimeOffset? ExpiresAt, string? GenesisId, string? Issuer = null, string? Audience = null)
 {
     public TimeSpan? Remaining => ExpiresAt - DateTimeOffset.UtcNow;
     public bool IsExpired => Remaining is { } r && r <= TimeSpan.Zero;
@@ -110,7 +116,9 @@ public sealed record TokenInfo(string Kind, DateTimeOffset? ExpiresAt, string? G
             DateTimeOffset? exp = root.TryGetProperty("exp", out var e) && e.TryGetInt64(out var s)
                 ? DateTimeOffset.FromUnixTimeSeconds(s) : null;
             var genesis = root.TryGetProperty("genesisId", out var g) ? g.GetString() : null;
-            return new TokenInfo("user JWT", exp, genesis);
+            var issuer = root.TryGetProperty("iss", out var i) ? i.ToString() : null;
+            var audience = root.TryGetProperty("aud", out var a) ? a.ToString() : null;
+            return new TokenInfo("user JWT", exp, genesis, issuer, audience);
         }
         catch (Exception)
         {

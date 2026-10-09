@@ -83,6 +83,7 @@
           <div class="tabs" role="tablist">
             <button class="tab" role="tab" data-tab="details" type="button">Details</button>
             <button class="tab" role="tab" data-tab="viewer" type="button">Viewer <span id="exViewerBadge"></span></button>
+            <button class="tab" role="tab" data-tab="comments" type="button">Comments <span class="badge num" id="exCommentsBadge" hidden></span></button>
             <button class="tab" role="tab" data-tab="calls" type="button">Calls <span class="badge num" id="exCallsBadge">0</span></button>
           </div>
         </div>
@@ -94,6 +95,7 @@
           </div>
           <div id="exViewerInfo"></div>
         </div>
+        <div class="insp-body" id="exComments" data-panel="comments" hidden></div>
         <div class="insp-body" id="exCalls" data-panel="calls" hidden></div>
       </div>
     </aside>
@@ -122,6 +124,28 @@
     <section class="col comparison" aria-label="Comparison" id="cmMain">
       <div class="insp-empty muted">Pick an asset, then a branch to compare it with.</div>
     </section>
+  </main>
+
+  <!-- Level editor: a scene rebuilt in its own WebGL runtime; add and move prefabs; save it back. -->
+  <main class="view work level" id="view-level" data-example="level" hidden>
+    <aside class="col files" aria-label="Scenes and prefabs">
+      <div class="col-head">Scenes and prefabs <span class="grow"></span><span class="mono plain" id="leRev"></span></div>
+      <p class="muted small" style="margin:8px 16px 0">Click a .unity scene to open it. Drag a prefab into the view to add it.</p>
+      <ul class="tree" id="leTree"></ul>
+    </aside>
+    <section class="col level-stage" aria-label="Scene">
+      <div class="folder-head" id="leHead"></div>
+      <div class="level-view">
+        <iframe id="lePlayer" title="Level editor"></iframe>
+        <div class="stage-overlay center" id="leOverlay"></div>
+      </div>
+    </section>
+    <aside class="col inspector" aria-label="Objects">
+      <div class="changebar" id="leBar"></div>
+      <div id="leTransform"></div>
+      <div style="padding:8px 16px 0"><input class="filter" id="leFilter" type="search" placeholder="Filter objects" aria-label="Filter objects" style="width:100%"></div>
+      <ul class="otree" id="leList"></ul>
+    </aside>
   </main>
 
   <main class="view blank" id="view-custom" hidden></main>
@@ -156,9 +180,12 @@
   <script src="unityyaml.js"></script>
   <script src="app.js"></script>
   <script src="viewer.js"></script>
+  <script src="comments.js"></script>
   <script src="explorer.js"></script>
   <script src="edit.js"></script>
   <script src="compare.js"></script>
+  <script src="levelscene.js"></script>
+  <script src="leveleditor.js"></script>
   <script>App.boot();</script>
 </body>
 </html>

@@ -322,20 +322,34 @@ const UnityYaml = (() => {
 
   // ── editing ─────────────────────────────────────────────────────────────
 
-  /** Apply edits ({line, start, end, text}) to the original lines; everything else is unchanged. */
+  /**
+   * Apply edits to the original lines; everything else is unchanged. An edit replaces characters
+   * ({line, start, end, text}) or, with insert: true, adds lines after a line ({line, insert, text}; the
+   * text may hold several lines, joined with "\n").
+   */
   function apply(parsed, edits) {
     const lines = parsed.lines.slice();
-    const byLine = new Map();
-    for (const e of edits) (byLine.get(e.line) ?? byLine.set(e.line, []).get(e.line)).push(e);
+    const byLine = new Map(), inserts = new Map();
+    for (const e of edits) {
+      const map = e.insert ? inserts : byLine;
+      (map.get(e.line) ?? map.set(e.line, []).get(e.line)).push(e);
+    }
     for (const [n, list] of byLine) {
       let s = lines[n];
-      for (const e of list.sort((a, b) => b.start - a.start)) s = s.slice(0, e.start) + e.text + s.slice(e.end);
+      for (const e of list.sort((a, b) => b.start - a.start)) s = s.slice(0, e.start) + e.text.replace(/\n/g, parsed.eol) + s.slice(e.end);
       lines[n] = s;
     }
+    for (const [n, list] of inserts) lines[n] = [lines[n], ...list.map((e) => e.text.replace(/\n/g, parsed.eol))].join(parsed.eol);
     return lines.join(parsed.eol);
   }
 
-  return { parse, model, apply, child, ref, scalarText, formatString, flowValue, CLASS };
+  /** The last line of a node (the deepest last child's line). */
+  function lastLine(nd) {
+    while (nd.children?.length) nd = nd.children[nd.children.length - 1];
+    return nd.line;
+  }
+
+  return { parse, model, apply, lastLine, child, ref, scalarText, formatString, flowValue, CLASS };
 })();
 
 if (typeof module !== "undefined") module.exports = UnityYaml;

@@ -1,0 +1,19 @@
+{
+    "name": "Unity.Pipeline.PreviewStage.Editor",
+    "rootNamespace": "Unity.Pipeline.PreviewStage.Editor",
+    "references": [
+        "Unity.Pipeline.PreviewStage",
+        "Unity.Pipeline.Samples.ScenePreview"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -9,9 +9,11 @@ const canPreview = (path) => PREVIEWABLE.has(ext(path));
 class Viewer {
   static all = [];
 
-  constructor(iframe, label) {
+  constructor(iframe, label, page = "player.html?embedded=1") {
     this.iframe = iframe;
     this.label = label;
+    this.page = page;
+    this.outbox = [];
     this.ready = false;
     this.pending = null;
     this.startOp = null;
@@ -26,7 +28,7 @@ class Viewer {
     this.startOp = Ops.start({ title: `Start the player${this.label ? ` (${this.label})` : ""}`, kind: "player", example,
       steps: [{ id: "load", label: "Download and start the Scene Preview player" }] });
     this.startOp.step("load", "active", "0%");
-    this.iframe.src = "player.html?embedded=1";   // the app draws the UI; the player draws none
+    this.iframe.src = this.page;   // the app draws the UI; the player draws none
   }
 
   load(url, name, key, example) {
@@ -38,6 +40,22 @@ class Viewer {
 
   clear() { this.shown = null; }
 
+  // A call to the player's PreviewAnnotations (comments on the preview); resolves with its value.
+  annotate(method, arg = {}) {
+    this.calls ??= new Map();
+    const id = `a${Viewer.nextCall = (Viewer.nextCall ?? 0) + 1}`;
+    return new Promise((resolve, reject) => {
+      this.calls.set(id, { resolve, reject });
+      this.post({ type: "annotations-call", id, method, arg });
+    });
+  }
+
+  // Any message for the player page, sent once the player is ready.
+  post(message) {
+    if (!this.ready) { this.outbox.push(message); return; }
+    this.iframe.contentWindow.postMessage(message, location.origin);
+  }
+
   static {
     addEventListener("message", (e) => {
       if (e.origin !== location.origin) return;
@@ -48,11 +66,20 @@ class Viewer {
         v.progress = m.progress;
         v.startOp?.step("load", "active", `${Math.round(m.progress * 100)}%`);
       }
+      else if (m.type === "annotations") {
+        const d = m.data ?? {};
+        if (d.event === "result") {
+          const c = v.calls?.get(d.id);
+          v.calls?.delete(d.id);
+          if (c) d.ok ? c.resolve(d.value) : c.reject(new Error(d.error));
+        } else App.emit("annotations", { viewer: v, ...d });
+      }
       else if (m.type === "player-error") { v.startOp?.fail(m.message); v.failed = m.message; App.emit("viewer", v); }
       else if (m.type === "player-ready") {
         v.ready = true;
         v.startOp?.step("load", "done").done("Player ready");
         if (v.pending) { const url = v.pending; v.pending = null; v.iframe.contentWindow.postMessage({ type: "load", url }, location.origin); }
+        for (const m of v.outbox.splice(0)) v.iframe.contentWindow.postMessage(m, location.origin);
         App.emit("viewer", v);
       }
     });

@@ -1,0 +1,22 @@
+{
+    "name": "Unity.Pipeline.PreviewAnnotations",
+    "rootNamespace": "Unity.Pipeline.PreviewAnnotations",
+    "references": [
+        "Unity.Cloud.Collaboration",
+        "Unity.Cloud.Common",
+        "Unity.Cloud.Common.Runtime",
+        "Unity.Pipeline.Samples.ScenePreview",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Newtonsoft.Json.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

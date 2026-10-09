@@ -35,6 +35,7 @@
     else await openFolder("Assets");
     if (EX.sel) selectAsset(EX.sel.path, { force: true });
   });
+  App.on("viewer", () => { if (EX.tab === "viewer") StageComments.render(); });
   App.on("ops", () => { renderRows(); if (EX.sel) { renderBadges(); if (EX.tab === "viewer") renderViewer(); if (EX.tab === "calls") renderCalls(); } });
   App.on("calls", () => { if (EX.sel) { renderBadges(); if (EX.tab === "calls") renderCalls(); } });
 
@@ -125,6 +126,8 @@
       op.step("guid", "done", r.guid ? short(r.guid) : "not an asset");
       $("exGuid").textContent = r.guid ?? "no GUID (not an asset?)";
       renderDetails();
+      setCommentCount(null);
+      if (EX.tab === "comments") CommentsTab.load();
       if (EX.tab === "viewer") renderViewer();
       if (r.guid) {
         op.step("meta", "active");
@@ -158,6 +161,7 @@
       else if (EX.sel?.guid) showArchiveIfBuilt();
     }
     if (tab === "calls") renderCalls();
+    if (tab === "comments") CommentsTab.load();
     renderBadges();
   }
 
@@ -329,7 +333,10 @@
     const s = EX.sel;
     const built = s?.guid && Archives.get(s.wb, s.rev, s.guid);
     const key = s?.guid && Archives.key(s.wb, s.rev, s.guid);
-    if (built && viewer().shown?.key !== key) viewer().load(built.url, fileName(s.path), key, "explorer");
+    if (built && viewer().shown?.key !== key) {
+      viewer().load(built.url, fileName(s.path), key, "explorer");
+      StageComments.setContext(s);
+    }
     renderViewer();
   }
 
@@ -354,6 +361,7 @@
       }
       op.step("load", "active", "sent to the player");
       viewer().load(r.url, fileName(s.path), Archives.key(s.wb, s.rev, s.guid), "explorer");
+      StageComments.setContext(s);
       op.step("load", "done", r.artifact);
       op.done(`${r.artifact} in the viewer`);
     } catch (e) {
@@ -399,6 +407,7 @@
       h("span", { class: "grow" }),
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: EX.autoPreview ? true : null, onchange: (e) => { EX.autoPreview = e.target.checked; writePref("explorer.autoPreview", EX.autoPreview); } }), "Preview on select"),
       canPreview(s.path) && s.guid && !run ? h("button", { class: "btn small", onclick: () => preview({ rebuild: true }) }, showing ? "Rebuild" : "Build") : null);
+    StageComments.render();
     put($("exViewerInfo"), info,
       h("p", { class: "muted small", style: "margin:0" }, "Materials using shader model 4.5 render pink on WebGL 2; the player uses WebGPU when the browser offers it. You can also drop a .ca file on the player."));
     renderBadges();
@@ -424,6 +433,31 @@
         EX.openCall.curl ? h("button", { class: "btn small", onclick: () => navigator.clipboard?.writeText(EX.openCall.curl) }, "Copy as curl") : null),
         h("pre", { class: "code", style: "white-space:pre-wrap;word-break:break-all;max-height:none" }, EX.openCall.exchange ?? "(no details)")) : null);
   }
+
+  // ── comments ─────────────────────────────────────────────────────────────
+
+  function setCommentCount(n) {
+    const b = $("exCommentsBadge");
+    b.hidden = n == null || n === 0;
+    b.textContent = n ?? "";
+  }
+
+  // Show a comment where it was made: the viewer, the asset loaded, the camera where it stood.
+  async function focusComment(id) {
+    const s = EX.sel;
+    showTab("viewer");
+    for (let i = 0; i < 600 && EX.sel === s && !StageComments.showing(s); i++) await sleep(200);
+    if (EX.sel !== s || !StageComments.showing(s)) return;
+    await sleep(300);   // the pins report their screen places
+    const pin = StageComments.pins.find((p) => p.id === id) ?? { id };
+    StageComments.openThread(pin);
+  }
+
+  CommentsTab.host = { el: $("exComments"), sel: () => EX.sel, viewer: () => viewer(), focus: focusComment,
+    onCount: (n) => { if (CommentsTab.scope === "asset") setCommentCount(n); } };
+  StageComments.init({ stage: $("exPlayer").parentElement, viewer: () => viewer(), sel: () => EX.sel,
+    onCreated: () => { if (EX.tab === "comments") CommentsTab.load({ force: true }); },
+    onCount: (n) => setCommentCount(n) });
 
   // ── uploads ──────────────────────────────────────────────────────────────
 

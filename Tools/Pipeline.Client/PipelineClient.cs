@@ -21,6 +21,7 @@ public sealed class PipelineClient : IDisposable
     readonly string clientBase;    // broker (public client host)
     readonly string internalBase;  // projectservice start/status
     readonly string internalHost;  // org and project directory (legacy Unity API)
+    readonly string collaborationBase;  // Unity Cloud Collaboration (annotations), same public host
 
     public PipelineConfig Config { get; }
 
@@ -64,6 +65,7 @@ public sealed class PipelineClient : IDisposable
         clientBase = $"{client}/{scope}";
         internalBase = $"{@internal}/{scope}";
         internalHost = @internal;
+        collaborationBase = $"{client}/collaboration/v1";
     }
 
     public void Dispose() => http.Dispose();
@@ -78,10 +80,11 @@ public sealed class PipelineClient : IDisposable
     // ── transport ───────────────────────────────────────────────────────────
 
     async Task<(int Status, byte[] Body)> SendAsync(HttpMethod method, string url, object? json,
-        HttpContent? content, string accept, TimeSpan timeout, CancellationToken ct)
+        HttpContent? content, string accept, TimeSpan timeout, CancellationToken ct, string? bearer = null)
     {
         using var request = new HttpRequestMessage(method, url);
         request.Headers.Accept.ParseAdd(accept);
+        if (bearer is not null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
         byte[]? sentBytes = null;
         if (json is not null)
         {
@@ -157,7 +160,8 @@ public sealed class PipelineClient : IDisposable
             failure?.RequestId, failure?.Code, failure?.Detail, isPoll, exchange));
 
     string ShortPath(string url) =>
-        url.Replace(clientBase, "…").Replace(internalBase, "…(internal)").Replace(internalHost, "(internal)");
+        url.Replace(clientBase, "…").Replace(internalBase, "…(internal)").Replace(internalHost, "(internal)")
+            .Replace(collaborationBase, "(collaboration)");
 
     async Task<T> JsonAsync<T>(HttpMethod method, string url, object? body = null,
         TimeSpan? timeout = null, CancellationToken ct = default, params int[] alsoOk)
@@ -177,6 +181,150 @@ public sealed class PipelineClient : IDisposable
             timeout ?? TimeSpan.FromSeconds(60), ct).ConfigureAwait(false);
         if (status is < 200 or >= 300)
             throw PipelineApiException.FromResponse(method.Method, ShortPath(url), status, bytes);
+    }
+
+    // ── VCS connections ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The project's source-control connections (Build Automation v3: id, name, type, url, gitProvider):
+    /// what a workbench's vcsConnectionId names. Read-only here; they're created in the dashboard.
+    /// </summary>
+    public async Task<byte[]> ListVcsConnectionsJsonAsync(CancellationToken ct = default)
+    {
+        var host = Config.Environment == "production" ? "build-automation.services.api.unity.com" : "build-automation.staging.services.api.unity.com";
+        var url = $"https://{host}/v3/orgs/{Uri.EscapeDataString(Config.OrganizationId)}/projects/{Uri.EscapeDataString(Config.ProjectId)}/connections";
+        var (status, bytes) = await SendAsync(HttpMethod.Get, url, null, null, "application/json", TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
+        if (status is < 200 or >= 300) throw PipelineApiException.FromResponse("GET", url, status, bytes);
+        return bytes;
+    }
+
+    /// <summary>
+    /// Create a git connection for the project (Build Automation's internal v2 API) that reaches
+    /// <paramref name="repositoryUrl"/> over HTTPS as <paramref name="user"/> with <paramref name="password"/>
+    /// (a personal access token that can push). Returns the connection as JSON (its id, name, type, url).
+    /// </summary>
+    /// <remarks>
+    /// Sent directly, not through SendAsync: the body carries the token, and the activity log records
+    /// bodies. The answer doesn't include it (Build Automation never returns credentials).
+    /// </remarks>
+    public async Task<byte[]> CreateVcsConnectionAsync(string name, string repositoryUrl, string? user, string? password,
+        CancellationToken ct = default)
+    {
+        var url = $"{internalHost}/api/build-automation/v2/orgs/{Uri.EscapeDataString(Config.OrganizationId)}/projects/{Uri.EscapeDataString(Config.ProjectId)}/connections";
+        // No credentials: a read-only connection to a public repo.
+        var body = user is null ? JsonSerializer.Serialize(new { type = "git", url = repositoryUrl, name })
+            : JsonSerializer.Serialize(new { type = "git", url = repositoryUrl, name, user, pass = password });
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Accept.ParseAdd("application/json");
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(60));
+        using var response = await http.SendAsync(request, cts.Token).ConfigureAwait(false);
+        var status = (int)response.StatusCode;
+        var bytes = await response.Content.ReadAsByteArrayAsync(cts.Token).ConfigureAwait(false);
+        if (status is < 200 or >= 300)
+        {
+            // The whole answer (validation errors list the fields in `details`), with the token blanked
+            // in case it's echoed back.
+            var text = System.Text.Encoding.UTF8.GetString(bytes, 0, Math.Min(bytes.Length, 3000));
+            if (!string.IsNullOrEmpty(password)) text = text.Replace(password, "(token)");
+            throw new PipelineApiException("POST", ShortPath(url), status, null, text, null, false);
+        }
+        return bytes;
+    }
+
+    /// <summary>Build Automation checks the connection through its provider (nothing is stored). Null when it's fine, else why not.</summary>
+    public async Task<string?> ValidateVcsConnectionAsync(string connectionId, CancellationToken ct = default)
+    {
+        var host = Config.Environment == "production" ? "build-automation.services.api.unity.com" : "build-automation.staging.services.api.unity.com";
+        var url = $"https://{host}/v3/orgs/{Uri.EscapeDataString(Config.OrganizationId)}/projects/{Uri.EscapeDataString(Config.ProjectId)}/connections/{Uri.EscapeDataString(connectionId)}/validate";
+        var (status, bytes) = await SendAsync(HttpMethod.Post, url, new { }, null, "application/json", TimeSpan.FromSeconds(60), ct).ConfigureAwait(false);
+        return status is >= 200 and < 300 ? null : $"HTTP {status}: {System.Text.Encoding.UTF8.GetString(bytes, 0, Math.Min(bytes.Length, 1500))}";
+    }
+
+    public Task DeleteVcsConnectionAsync(string connectionId, CancellationToken ct = default) =>
+        NoContentAsync(HttpMethod.Delete,
+            $"{internalHost}/api/build-automation/v2/orgs/{Uri.EscapeDataString(Config.OrganizationId)}/projects/{Uri.EscapeDataString(Config.ProjectId)}/connections/{Uri.EscapeDataString(connectionId)}", ct: ct);
+
+    // ── collaboration ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A Unity Cloud Collaboration call (annotations, threads, attachments), passed through as is:
+    /// <paramref name="path"/> is relative to /collaboration/v1 (e.g. "projects/{id}/annotations-search?…").
+    /// Any status comes back; nothing is thrown for 4xx/5xx, so the caller can relay it.
+    /// </summary>
+    public async Task<(int Status, byte[] Body)> CollaborationAsync(HttpMethod method, string path, byte[]? body,
+        string? contentType, CancellationToken ct = default)
+    {
+        HttpContent? content = null;
+        if (body is { Length: > 0 })
+        {
+            content = new ByteArrayContent(body);
+            content.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType ?? "application/json");
+        }
+        // Collaboration only trusts Unity Cloud tokens, not the Genesis (unity-ads) token Pipeline takes:
+        // a token given for it, else the configured one exchanged.
+        // The gateway takes only JWTs: a Genesis access token (opaque) is exchanged for one first.
+        var token = Config.CollaborationToken is { Length: > 0 } given
+            ? given.StartsWith("eyJ", StringComparison.Ordinal) ? given
+              : await ServicesTokenAsync(ct, given).ConfigureAwait(false)
+                ?? throw new PipelineApiException("POST", "genesis-token-exchange", 401, null,
+                    "the token for comments couldn't be exchanged for a Unity Services token: it may have expired", null, false)
+            : await ServicesTokenAsync(ct).ConfigureAwait(false) ?? Config.Token;
+        return await SendAsync(method, $"{collaborationBase}/{path.TrimStart('/')}", null, content, "application/json",
+            TimeSpan.FromSeconds(60), ct, token).ConfigureAwait(false);
+    }
+
+    (string? Token, DateTime Until, string From)? servicesToken;
+
+    /// <summary>
+    /// The configured Genesis token exchanged for a Unity Services token (what com.unity.cloud.identity
+    /// does), cached until shortly before it expires.
+    /// </summary>
+    /// <summary>Whether a Genesis access token can be exchanged for a Unity Services JWT (what comments need).</summary>
+    public async Task<bool> CanExchangeGenesisAsync(string genesis, CancellationToken ct = default) =>
+        await ServicesTokenAsync(ct, genesis).ConfigureAwait(false) is not null;
+
+    /// <remarks>Null when the exchange refuses the token (not a Genesis token): it's then sent as is.</remarks>
+    async Task<string?> ServicesTokenAsync(CancellationToken ct, string? genesis = null)
+    {
+        genesis ??= Config.Token;
+        if (servicesToken is { } t && t.From == genesis && DateTime.UtcNow < t.Until) return t.Token;
+        // Sent directly, not through SendAsync: both bodies are tokens, and the activity log records bodies.
+        var url = $"{internalHost}/api/auth/v1/genesis-token-exchange/unity";
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new { token = genesis }), System.Text.Encoding.UTF8, "application/json"),
+        };
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(30));
+        // A plain client: the exchange takes the token in its body, not as a bearer.
+        using var plain = new HttpClient();
+        using var response = await plain.SendAsync(request, cts.Token).ConfigureAwait(false);
+        var status = (int)response.StatusCode;
+        var bytes = await response.Content.ReadAsByteArrayAsync(cts.Token).ConfigureAwait(false);
+        if (status is < 200 or >= 300)
+        {
+            servicesToken = (null, DateTime.UtcNow.AddMinutes(10), genesis);   // don't ask again on every call
+            return null;
+        }
+        using var doc = JsonDocument.Parse(bytes);
+        var token = doc.RootElement.GetProperty("token").GetString()
+                    ?? throw new PipelineApiException("POST", ShortPath(url), status, null, "no token in the exchange response", null, false);
+        var until = DateTime.UtcNow.AddMinutes(10);
+        try
+        {
+            var payload = token.Split('.')[1].Replace('-', '+').Replace('_', '/');
+            payload = payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=');
+            using var claims = JsonDocument.Parse(Convert.FromBase64String(payload));
+            if (claims.RootElement.TryGetProperty("exp", out var exp))
+                until = DateTimeOffset.FromUnixTimeSeconds(exp.GetInt64()).UtcDateTime - TimeSpan.FromMinutes(2);
+        }
+        catch (Exception e) when (e is FormatException or JsonException or IndexOutOfRangeException) { }
+        servicesToken = (token, until, genesis);
+        return token;
     }
 
     // ── jobs and asynchronous reads ─────────────────────────────────────────
@@ -323,6 +471,16 @@ public sealed class PipelineClient : IDisposable
 
     string Org => $"{internalHost}/api/unity/legacy/v1/organizations/{Uri.EscapeDataString(Config.OrganizationId)}";
 
+    /// <summary>The org's members (id, name, email), as the access API returns them: for @mentions.</summary>
+    public async Task<byte[]> GetMembersJsonAsync(CancellationToken ct = default)
+    {
+        var url = $"{internalHost}/api/access/legacy/v1/organizations/{Uri.EscapeDataString(Config.OrganizationId)}/members?limit=1000&offset=0";
+        var (status, bytes) = await SendAsync(HttpMethod.Get, url, null, null, "application/json", TimeSpan.FromSeconds(30), ct)
+            .ConfigureAwait(false);
+        if (status is < 200 or >= 300) throw PipelineApiException.FromResponse("GET", ShortPath(url), status, bytes);
+        return bytes;
+    }
+
     public Task<Organization> GetOrganizationAsync(CancellationToken ct = default) =>
         JsonAsync<Organization>(HttpMethod.Get, Org, ct: ct);
 
@@ -380,9 +538,19 @@ public sealed class PipelineClient : IDisposable
         };
     }
 
-    public Task<Workbench> CreateWorkbenchAsync(string repositoryUrl, string branch, CancellationToken ct = default) =>
-        JsonAsync<Workbench>(HttpMethod.Post, $"{clientBase}/workbenches",
-            new { type = "git", branch, repo = repositoryUrl }, TimeSpan.FromSeconds(120), ct);
+    /// <summary>A git workbench on <paramref name="branch"/>; without a name Pipeline generates "wb-{uuid}".</summary>
+    /// <remarks>
+    /// With <paramref name="vcsConnectionId"/>, Pipeline reaches the repo through that VCS connection (its
+    /// credentials), which is what lets it publish (push) back; without one it clones the public URL, read-only.
+    /// </remarks>
+    public Task<Workbench> CreateWorkbenchAsync(string repositoryUrl, string branch, string? name = null, CancellationToken ct = default,
+        string? vcsConnectionId = null)
+    {
+        var body = new System.Text.Json.Nodes.JsonObject { ["type"] = "git", ["branch"] = branch, ["repo"] = repositoryUrl };
+        if (!string.IsNullOrWhiteSpace(name)) body["name"] = name.Trim();
+        if (!string.IsNullOrWhiteSpace(vcsConnectionId)) body["vcsConnectionId"] = vcsConnectionId.Trim();
+        return JsonAsync<Workbench>(HttpMethod.Post, $"{clientBase}/workbenches", body, TimeSpan.FromSeconds(120), ct);
+    }
 
     /// <summary>Soft stop: releases the worker; the workbench leaves the listing but can still be read.</summary>
     public Task RetireWorkbenchAsync(string workbenchId, CancellationToken ct = default) =>

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Level editor player</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #1d2129; }
+    #unity-canvas { width: 100%; height: 100%; display: block; background: #1d2129; outline: none; }
+    #drop { position: absolute; inset: 0; display: none; pointer-events: none; box-shadow: inset 0 0 0 3px #3fbdb3; }
+  </style>
+</head>
+<body>
+  <canvas id="unity-canvas" tabindex="-1"></canvas>
+  <div id="drop"></div>
+  <script>
+    // Hosts the level editor's WebGL runtime inside Pipeline Explorer, which draws all the UI.
+    // From the app: {type: "le", method, arg} → SendMessage("LevelEditor", method, arg).
+    // To the app: player-progress / player-ready / player-error, le-drop (a prefab dropped here), and the
+    // runtime's own reports ({type: "level-editor", data}), sent by LevelEditorHost.jslib.
+    "use strict";
+    const ASSET = "application/x-pipeline-asset";
+    let unity = null;
+    const queue = [];
+    const send = (m) => parent.postMessage(m, location.origin);
+
+    function call(method, arg) {
+      if (!unity) { queue.push([method, arg]); return; }
+      unity.SendMessage("LevelEditor", method, arg ?? "");
+    }
+    addEventListener("message", (e) => {
+      if (e.origin === location.origin && e.data?.type === "le") call(e.data.method, e.data.arg);
+    });
+
+    // Assets dragged from the app's file tree: tell the app where they landed (0..1 across the view).
+    const drop = document.getElementById("drop");
+    const isAsset = (e) => [...(e.dataTransfer?.types ?? [])].includes(ASSET);
+    addEventListener("dragover", (e) => { if (!isAsset(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; drop.style.display = "block"; });
+    addEventListener("dragleave", () => { drop.style.display = "none"; });
+    addEventListener("drop", (e) => {
+      drop.style.display = "none";
+      if (!isAsset(e)) return;
+      e.preventDefault();
+      let asset = null;
+      try { asset = JSON.parse(e.dataTransfer.getData(ASSET)); } catch { return; }
+      send({ type: "le-drop", path: asset.path, u: e.clientX / innerWidth, v: e.clientY / innerHeight });
+      document.getElementById("unity-canvas").focus();
+    });
+    // Keys (R to rotate, Delete, F) reach the player once the view is clicked.
+    addEventListener("pointerdown", () => document.getElementById("unity-canvas").focus());
+    addEventListener("contextmenu", (e) => e.preventDefault());
+
+    (async () => {
+      const info = await (await fetch("/api/level-player", { headers: { "X-Pipeline-Explorer": "1" } })).json();
+      if (!info.available) { send({ type: "player-error", message: info.message }); return; }
+      await new Promise((ok, fail) => {
+        const s = document.createElement("script");
+        s.src = info.loaderUrl;
+        s.onload = ok;
+        s.onerror = () => fail(new Error(`couldn't load ${info.loaderUrl}`));
+        document.body.append(s);
+      });
+      unity = await createUnityInstance(document.getElementById("unity-canvas"), {
+        dataUrl: info.dataUrl,
+        frameworkUrl: info.frameworkUrl,
+        codeUrl: info.codeUrl,
+        streamingAssetsUrl: info.streamingAssetsUrl,
+        companyName: "DefaultCompany",
+        productName: "Level Editor",
+        productVersion: "1.0",
+        showBanner: (text, type) => console[type === "error" ? "error" : "warn"](text),
+      }, (p) => send({ type: "player-progress", progress: p }));
+      send({ type: "player-ready" });
+      queue.splice(0).forEach(([m, a]) => call(m, a));
+    })().catch((e) => send({ type: "player-error", message: `The level editor didn't start: ${e.message}` }));
+  </script>
+</body>
+</html>

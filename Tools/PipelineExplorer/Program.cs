@@ -70,15 +70,18 @@ app.UseStaticFiles(new StaticFileOptions
 // repo), at /player. Unity compresses its build files (.br or .gz): serve them with the matching
 // Content-Encoding and the type of the file inside, which is what the Unity loader expects.
 var playerDir = WebGlPlayer.FindBuild(app.Environment.ContentRootPath);
-if (playerDir is not null)
+// The level editor's runtime (LevelEditor_WebGL build profile), at /level-player.
+var levelPlayerDir = WebGlPlayer.FindBuild(app.Environment.ContentRootPath, WebGlPlayer.LevelEditorFolder, "PIPELINE_EXPLORER_LEVEL_PLAYER");
+foreach (var (dir, at) in new[] { (playerDir, "/player"), (levelPlayerDir, "/level-player") })
 {
+    if (dir is null) continue;
     var types = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
     foreach (var ext in (string[])[".br", ".gz", ".unityweb", ".data", ".symbols.json"]) types.Mappings[ext] = "application/octet-stream";
     types.Mappings[".wasm"] = "application/wasm";
     app.UseStaticFiles(new StaticFileOptions
     {
-        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(playerDir),
-        RequestPath = "/player",
+        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(dir),
+        RequestPath = at,
         ContentTypeProvider = types,
         OnPrepareResponse = f =>
         {
@@ -117,6 +120,28 @@ api.MapPost("/token", (Pipelines p, PastedToken body) =>
 api.MapDelete("/token", (Pipelines p) =>
 {
     p.SetToken(null);
+    return p.Describe();
+});
+
+// A second token, for Collaboration (annotations) only: it doesn't accept the pipeline's Genesis tokens.
+// Kept like the first one (encrypted for this Windows user), and never sent back.
+api.MapPost("/collab-token", async (Pipelines p, PastedToken body, CancellationToken ct) =>
+{
+    var token = Pipelines.CleanToken(body.Token);
+    if (token.Length == 0) return Results.BadRequest(new { error = "paste a bearer token" });
+    // A Genesis access token is opaque (not a JWT): take any single token of a plausible length.
+    if (token.Length < 20 || token.Any(char.IsWhiteSpace))
+        return Results.BadRequest(new { error = "that doesn't look like a token (one word, at least 20 characters)" });
+    // An opaque Genesis token is exchanged for a JWT on each use: check now that it can be.
+    if (!token.StartsWith("eyJ", StringComparison.Ordinal) && !await p.Default.CanExchangeGenesisAsync(token, ct))
+        return Results.BadRequest(new { error = "Unity's token exchange refused it: check it's a current Genesis access token for staging" });
+    p.SetCollaborationToken(token);
+    return Results.Ok(p.Describe());
+});
+
+api.MapDelete("/collab-token", (Pipelines p) =>
+{
+    p.SetCollaborationToken(null);
     return p.Describe();
 });
 
@@ -210,8 +235,15 @@ api.MapPost("/workbenches", async (Pipelines p, NewWorkbench body, CancellationT
     if (string.IsNullOrWhiteSpace(body.Branch)) return Results.BadRequest(new { error = "branch is required" });
     // Needs the branch's project service running: the page starts it first and shows its progress.
     var branch = body.Branch.Trim();
-    var created = await c.CreateWorkbenchAsync(repo, branch, ct);
-    p.RememberGitBranch(created.WorkbenchId, branch);   // only this answer says which git branch it is
+    var name = string.IsNullOrWhiteSpace(body.Name) ? null : body.Name.Trim();
+    // Only this request knows the git branch. Note it under the name first (the list matches it up if
+    // the answer never comes), and finish even if the page goes away mid-request (a reload): the
+    // workbench gets created either way, and its branch must be recorded.
+    if (name is not null) p.RememberGitBranch(Pipelines.PendingKey(name), branch);
+    if (body.VcsConnectionId is { Length: > 0 } vcs && !Guid.TryParse(vcs.Trim(), out _))
+        return Results.BadRequest(new { error = "a VCS connection id is a UUID" });
+    var created = await c.CreateWorkbenchAsync(repo, branch, name, CancellationToken.None, body.VcsConnectionId);
+    p.RememberGitBranch(created.WorkbenchId, branch);
     return Results.Ok(p.WithGitBranch(created, new Dictionary<string, string>()));
 });
 
@@ -375,6 +407,7 @@ envRev.MapGet("/preview", async (Pipelines p, string wb, string env, string rev,
 
 // Which WebGL build files the player page should load (names vary with the build's compression).
 api.MapGet("/player", () => WebGlPlayer.Describe(playerDir));
+api.MapGet("/level-player", () => WebGlPlayer.Describe(levelPlayerDir, "level-player", WebGlPlayer.LevelEditorFolder, "LevelEditor_WebGL"));
 
 // One call for "preview this asset in the player": a content archive (.ca) built by the pipeline for
 // the player's platform, and the URL the player downloads it from. Finds or creates the workbench's
@@ -441,6 +474,94 @@ envRev.MapGet("/imports/artifact", async (Pipelines p, string wb, string env, st
     Bytes(await p.Default.GetImportArtifactAsync(wb, env, rev, address, name ?? "", null, ct),
         string.IsNullOrEmpty(name) ? $"{address.Replace(':', '_').Replace('+', '_')}.bin" : Path.GetFileName(name)));
 
+// ── VCS connections (what lets Pipeline push to git) ────────────────────────
+
+api.MapGet("/vcs-connections", async (Pipelines p, CancellationToken ct) =>
+    Results.Bytes(await p.Default.ListVcsConnectionsJsonAsync(ct), "application/json"));
+
+// A git connection for the repo, with a token that can push (typed into the page by its owner, passed on to
+// Build Automation and never stored or logged here).
+api.MapPost("/vcs-connections", async (Pipelines p, NewVcsConnection body, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(body.Url)) return Results.BadRequest(new { error = "a connection needs the repository URL" });
+    var anonymous = string.IsNullOrWhiteSpace(body.User) && string.IsNullOrWhiteSpace(body.Token);
+    if (!anonymous && (string.IsNullOrWhiteSpace(body.User) || string.IsNullOrWhiteSpace(body.Token)))
+        return Results.BadRequest(new { error = "give both a user name and a token, or neither (a read-only connection)" });
+    var name = string.IsNullOrWhiteSpace(body.Name) ? body.Url.Trim().TrimEnd('/').Split('/').Last().Replace(".git", "") : body.Name.Trim();
+    try
+    {
+        // Build Automation's examples are clone URLs (…/repo.git); git takes both forms.
+        var url = body.Url.Trim().TrimEnd('/');
+        if (url.Contains("github.com/", StringComparison.OrdinalIgnoreCase) && !url.EndsWith(".git", StringComparison.OrdinalIgnoreCase)) url += ".git";
+        var json = await p.Default.CreateVcsConnectionAsync(name, url, anonymous ? null : body.User!.Trim(), anonymous ? null : body.Token!.Trim(), ct);
+        return Results.Bytes(json, "application/json");
+    }
+    catch (PipelineApiException e)
+    {
+        // Build Automation's answer only (never the request: it holds the token).
+        app.Logger.LogWarning("Creating the VCS connection for {Url} failed: HTTP {Status} {Code} {Detail}", body.Url, e.Status, e.Code, e.Detail ?? e.Message);
+        throw;
+    }
+});
+
+api.MapPost("/vcs-connections/{id}/validate", async (Pipelines p, string id, CancellationToken ct) =>
+    await p.Default.ValidateVcsConnectionAsync(id, ct) is { } problem ? Results.Ok(new { ok = false, problem }) : Results.Ok(new { ok = true }));
+
+api.MapDelete("/vcs-connections/{id}", async (Pipelines p, string id, CancellationToken ct) =>
+{
+    await p.Default.DeleteVcsConnectionAsync(id, ct);
+    return Results.NoContent();
+});
+
+// ── collaboration: annotations on assets ────────────────────────────────────
+// A pass-through to Unity Cloud Collaboration (/collaboration/v1/…), with this server's token. The
+// Scene Preview player's Collaboration SDK and the page both call it here: the player has no token
+// of its own, and the service doesn't allow calls from this origin (CORS).
+
+api.MapMethods("/collab/{**path}", ["GET", "POST", "PUT", "PATCH", "DELETE"], async (Pipelines p, string path,
+    HttpRequest request, HttpResponse response, CancellationToken ct) =>
+{
+    byte[]? body = null;
+    if (request.ContentLength is > 0 || request.Headers.TransferEncoding.Count > 0)
+    {
+        using var buffer = new MemoryStream();
+        await request.Body.CopyToAsync(buffer, ct);
+        body = buffer.ToArray();
+    }
+    // The SDK's URLs carry the API prefix too (…/api/collab/collaboration/v1/projects/…).
+    var rest = path.StartsWith("collaboration/v1/", StringComparison.Ordinal) ? path["collaboration/v1/".Length..] : path;
+    var (status, bytes) = await p.Default.CollaborationAsync(new HttpMethod(request.Method), rest + request.QueryString,
+        body, request.ContentType, ct);
+    response.StatusCode = status;
+    if (bytes.Length > 0) response.ContentType = "application/json";
+    await response.Body.WriteAsync(bytes, ct);
+});
+
+// Uploads to a pre-signed storage URL Collaboration handed out (a comment's screenshot): the player can't
+// PUT there itself (the storage doesn't allow this origin). Only HTTPS cloud-storage hosts.
+api.MapPut("/collab-upload", async (string url, HttpRequest request, CancellationToken ct) =>
+{
+    if (!Uri.TryCreate(url, UriKind.Absolute, out var target) || target.Scheme != "https"
+        || !(target.Host.EndsWith(".googleapis.com") || target.Host.EndsWith(".amazonaws.com") || target.Host.EndsWith(".blob.core.windows.net")
+             || target.Host.EndsWith(".unity.com") || target.Host.EndsWith(".unity3d.com")))
+        return Results.BadRequest(new { error = $"not a storage URL: {target?.Host}" });
+    using var buffer = new MemoryStream();
+    await request.Body.CopyToAsync(buffer, ct);
+    using var content = new ByteArrayContent(buffer.ToArray());
+    content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(request.ContentType ?? "application/octet-stream");
+    using var http = new HttpClient();
+    using var put = new HttpRequestMessage(HttpMethod.Put, target) { Content = content };
+    put.Headers.TryAddWithoutValidation("x-ms-blob-type", "BlockBlob");   // Azure Blob storage requires it (others ignore it)
+    using var response = await http.SendAsync(put, ct);
+    var text = await response.Content.ReadAsStringAsync(ct);
+    return response.IsSuccessStatusCode ? Results.NoContent()
+        : Results.Json(new { error = $"storage answered HTTP {(int)response.StatusCode}: {text[..Math.Min(text.Length, 500)]}" }, statusCode: 502);
+});
+
+// The org's members, for @mentions (cached for 10 min).
+api.MapGet("/members", async (Pipelines p, CancellationToken ct) =>
+    Results.Bytes(await p.MembersAsync(ct), "application/json"));
+
 // ── activity: every pipeline call the server made ───────────────────────────
 
 api.MapGet("/activity", (Pipelines p, long? after) => p.ActivitySince(after ?? 0));
@@ -470,7 +591,8 @@ static IResult Bytes(byte[] bytes, string fileName)
     return Results.File(bytes, "application/octet-stream", fileName);
 }
 
-record NewWorkbench(string Branch, string? Repository);
+record NewVcsConnection(string? Name, string? Url, string? User, string? Token);
+record NewWorkbench(string Branch, string? Repository, string? Name, string? VcsConnectionId = null);
 
 record ActivityItem(long Id, DateTimeOffset At, string Method, string Path, int Status, int Ms, string? RequestId,
     string? ErrorCode, string? ErrorDetail, bool IsPoll, string? Exchange, string? Curl, string? Op);
@@ -494,26 +616,27 @@ static class WebGlPlayer
 {
     public const string ContentImporter = "Unity.Pipeline.Samples.ScenePreview.Importer.PreviewContentImporter";
     const string BuildFolder = "ScenePreview_WebGL";
+    public const string LevelEditorFolder = "LevelEditor_WebGL";
 
     /// <summary>
     /// The build folder: PIPELINE_EXPLORER_PLAYER, else Builds/ScenePreview_WebGL in the Unity project the
     /// app sits in (Tools/ is next to Builds/).
     /// </summary>
-    public static string? FindBuild(string contentRoot)
+    public static string? FindBuild(string contentRoot, string folder = BuildFolder, string variable = "PIPELINE_EXPLORER_PLAYER")
     {
-        if (Environment.GetEnvironmentVariable("PIPELINE_EXPLORER_PLAYER") is { Length: > 0 } configured)
+        if (Environment.GetEnvironmentVariable(variable) is { Length: > 0 } configured)
             return Directory.Exists(configured) ? Path.GetFullPath(configured) : null;
         foreach (var start in (string[])[contentRoot, AppContext.BaseDirectory])
             for (var dir = new DirectoryInfo(start); dir is not null; dir = dir.Parent)
-                if (Path.Combine(dir.FullName, "Builds", BuildFolder) is var path && Directory.Exists(Path.Combine(path, "Build")))
+                if (Path.Combine(dir.FullName, "Builds", folder) is var path && Directory.Exists(Path.Combine(path, "Build")))
                     return path;
         return null;
     }
 
-    public static object Describe(string? dir)
+    public static object Describe(string? dir, string at = "player", string folder = BuildFolder, string profile = "ScenePreview_WebGL")
     {
         if (dir is null)
-            return new { available = false, message = $"No WebGL player build yet: build the ScenePreview_WebGL profile to Builds/{BuildFolder} in the Unity project, then restart the app." };
+            return new { available = false, message = $"No WebGL player build yet: build the {profile} profile to Builds/{folder} in the Unity project, then restart the app." };
         var files = Directory.GetFiles(Path.Combine(dir, "Build")).Select(Path.GetFileName).ToList();
         string? Find(string infix) => files.FirstOrDefault(f => f!.Contains(infix, StringComparison.Ordinal));
         var loader = Find(".loader.js");
@@ -526,11 +649,11 @@ static class WebGlPlayer
         {
             available = true,
             folder = dir,
-            loaderUrl = $"player/Build/{loader}",
-            dataUrl = $"player/Build/{data}",
-            frameworkUrl = $"player/Build/{framework}",
-            codeUrl = $"player/Build/{code}",
-            streamingAssetsUrl = "player/StreamingAssets",
+            loaderUrl = $"{at}/Build/{loader}",
+            dataUrl = $"{at}/Build/{data}",
+            frameworkUrl = $"{at}/Build/{framework}",
+            codeUrl = $"{at}/Build/{code}",
+            streamingAssetsUrl = $"{at}/StreamingAssets",
         };
     }
 }
@@ -559,6 +682,9 @@ sealed class Pipelines
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PipelineExplorer", "workbench-branches.json");
     Dictionary<string, string>? gitBranches;
     (string Repo, DateTime At, IReadOnlyDictionary<string, string> Heads)? headsCache;
+
+    /// <summary>Where a workbench being created is noted, by name, until its id is known.</summary>
+    public static string PendingKey(string name) => "name:" + name;
 
     public string? GitBranchOf(string workbenchId)
     {
@@ -611,6 +737,9 @@ sealed class Pipelines
     {
         var node = System.Text.Json.JsonSerializer.SerializeToNode(w, System.Text.Json.JsonSerializerOptions.Web)!.AsObject();
         var known = GitBranchOf(w.WorkbenchId);
+        // Created from this app, but its answer was lost: the branch was noted under its name.
+        if (known is null && w.Name is { Length: > 0 } name && GitBranchOf(PendingKey(name)) is { } pending)
+            RememberGitBranch(w.WorkbenchId, known = pending);
         var fromHead = heads.Where(kv => kv.Value == w.UpstreamRevision).Select(kv => kv.Key).ToList();
         node["gitBranch"] = known ?? (fromHead.Count == 1 ? fromHead[0] : null);
         node["gitBranchKnown"] = known is not null;
@@ -631,8 +760,22 @@ sealed class Pipelines
         config = Load();
         pastedToken = ReadSavedToken();
         if (pastedToken is not null) config = config with { Token = pastedToken };
+        collaborationToken = ReadSavedToken(SavedCollaborationTokenPath);
+        config = config with { CollaborationToken = collaborationToken };
         if (ReadSavedSelection() is { } saved && (string.IsNullOrEmpty(config.OrganizationId) || string.IsNullOrEmpty(config.ProjectId)))
             config = config with { OrganizationId = saved.OrganizationId, ProjectId = saved.ProjectId };
+    }
+
+    string? collaborationToken;
+    static readonly string SavedCollaborationTokenPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PipelineExplorer", "collab-token.dat");
+
+    public void SetCollaborationToken(string? token)
+    {
+        collaborationToken = string.IsNullOrEmpty(token) ? null : token;
+        SaveToken(collaborationToken, SavedCollaborationTokenPath);
+        config = config with { CollaborationToken = collaborationToken };
+        DropClients();
     }
 
     Selection? ReadSavedSelection()
@@ -662,11 +805,12 @@ sealed class Pipelines
         }
     }
 
-    string? ReadSavedToken()
+    string? ReadSavedToken(string? path = null)
     {
+        path ??= SavedTokenPath;
         try
         {
-            return File.Exists(SavedTokenPath) ? protector.Unprotect(File.ReadAllText(SavedTokenPath)) : null;
+            return File.Exists(path) ? protector.Unprotect(File.ReadAllText(path)) : null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
         {
@@ -675,17 +819,18 @@ sealed class Pipelines
         }
     }
 
-    void SaveToken(string? token)
+    void SaveToken(string? token, string? path = null)
     {
+        path ??= SavedTokenPath;
         try
         {
             if (token is null)
             {
-                File.Delete(SavedTokenPath);
+                File.Delete(path);
                 return;
             }
-            Directory.CreateDirectory(Path.GetDirectoryName(SavedTokenPath)!);
-            File.WriteAllText(SavedTokenPath, protector.Protect(token));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, protector.Protect(token));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -715,7 +860,7 @@ sealed class Pipelines
     /// <summary>Re-read the config, e.g. after a fresh token was written to .env. A pasted token still wins.</summary>
     public void Reload()
     {
-        config = Load();
+        config = Load() with { CollaborationToken = collaborationToken };
         if (pastedToken is not null) config = config with { Token = pastedToken };
         if (ReadSavedSelection() is { } saved && (string.IsNullOrEmpty(config.OrganizationId) || string.IsNullOrEmpty(config.ProjectId)))
             config = config with { OrganizationId = saved.OrganizationId, ProjectId = saved.ProjectId };
@@ -730,7 +875,7 @@ sealed class Pipelines
     {
         pastedToken = string.IsNullOrEmpty(token) ? null : token;
         SaveToken(pastedToken);
-        config = config with { Token = pastedToken ?? Load().Token };
+        config = config with { Token = pastedToken ?? Load().Token };   // CollaborationToken is kept
         DropClients();
     }
 
@@ -769,6 +914,17 @@ sealed class Pipelines
     }
 
     public PipelineClient Default => For(null);
+
+    (string Org, DateTime At, byte[] Json)? membersCache;
+
+    public async Task<byte[]> MembersAsync(CancellationToken ct)
+    {
+        if (membersCache is { } c && c.Org == config.OrganizationId && DateTime.UtcNow - c.At < TimeSpan.FromMinutes(10))
+            return c.Json;
+        var json = await ForOrg(config.OrganizationId).GetMembersJsonAsync(ct);
+        membersCache = (config.OrganizationId, DateTime.UtcNow, json);
+        return json;
+    }
 
     public PipelineClient For(string? branch)
     {
@@ -816,8 +972,10 @@ sealed class Pipelines
             platform = config.Platform,
             workbenchId = config.WorkbenchId,
             environmentId = config.EnvironmentId,
-            token = token is null ? null : new { token.Kind, token.ExpiresAt, token.IsExpired },
+            token = token is null ? null : new { token.Kind, token.ExpiresAt, token.IsExpired, token.Issuer, token.Audience },
             tokenSource = pastedToken is not null ? "pasted" : token is null ? null : "file",
+            collaborationToken = collaborationToken is null ? null
+                : TokenInfo.Inspect(collaborationToken) is var c ? new { c.Kind, c.ExpiresAt, c.IsExpired, c.Issuer } : null,
         };
     }
 }

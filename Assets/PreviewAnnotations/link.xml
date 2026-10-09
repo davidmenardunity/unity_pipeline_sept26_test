@@ -1,0 +1,8 @@
+<!-- The Collaboration SDK reads and writes its models through Newtonsoft.Json reflection: keep them whole in
+     stripped player builds (the Scene Preview's WebGL player). -->
+<linker>
+  <assembly fullname="Unity.Cloud.Collaboration" preserve="all"/>
+  <assembly fullname="Unity.Cloud.Common" preserve="all"/>
+  <assembly fullname="Unity.Cloud.Common.Runtime" preserve="all"/>
+  <assembly fullname="Newtonsoft.Json" preserve="all"/>
+</linker>

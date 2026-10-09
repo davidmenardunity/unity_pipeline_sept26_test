@@ -304,6 +304,17 @@ pre.code { margin: 0; padding: 10px 12px; background: var(--sunk); border: 1px s
 .diff .del { background: var(--bad-soft); }
 .diff .hunk { color: var(--muted); background: var(--panel); }
 
+/* ── level editor ──────────────────────────────────────── */
+.level { grid-template-columns: 250px minmax(0, 1fr) minmax(300px, 360px); }
+.level-stage { display: flex; flex-direction: column; overflow: hidden; }
+.level-view { position: relative; flex: 1; min-height: 300px; background: #1d2129; }
+.level-view iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+.level .tree .item[draggable="true"] { cursor: grab; }
+#leList .item .badge { margin-left: auto; }
+#leList .item .dot.warn { margin-left: auto; }
+#leList .note { padding: 6px 8px; font-size: 12px; color: var(--muted); }
+#leList .spin { width: 9px; height: 9px; }
+
 /* ── custom example ────────────────────────────────────── */
 .blank { overflow: auto; padding-block: 24px; padding-inline: 16px; }
 .blank-inner { max-width: 760px; margin: 0 auto; display: grid; gap: 16px; }
@@ -344,6 +355,10 @@ pre.code { margin: 0; padding: 10px 12px; background: var(--sunk); border: 1px s
 .dialog h3 { margin: 0 0 8px; font-size: 15px; }
 .dialog p { margin: 0 0 12px; color: var(--muted); white-space: pre-wrap; }
 .dialog input { width: 100%; margin-bottom: 12px; font-family: var(--font-mono); padding: 6px 8px; }
+.dialog-field { display: grid; gap: 4px; margin-bottom: 12px; }
+.dialog-field > span { font-size: 12px; color: var(--muted); font-weight: 600; }
+.dialog-field input { margin-bottom: 0; }
+.dialog-field small { font-size: 11px; }
 .row-end { display: flex; justify-content: flex-end; gap: 8px; }
 .popover { position: fixed; z-index: 15; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; box-shadow: 0 16px 40px rgb(0 0 0 / .18); display: grid; gap: 10px; width: min(420px, calc(100% - 32px)); }
 .newex { top: 120px; left: 16px; }
@@ -359,6 +374,8 @@ pre.code { margin: 0; padding: 10px 12px; background: var(--sunk); border: 1px s
   .edit { grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: minmax(0, 40%) minmax(0, 1fr); }
   .edit .inspector { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
   .pair { grid-template-columns: 1fr; }
+  .level { grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 40%); }
+  .level .inspector { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
 }
 @media (max-width: 720px) {
   .work { display: block; overflow: auto; }
@@ -369,3 +386,68 @@ pre.code { margin: 0; padding: 10px 12px; background: var(--sunk); border: 1px s
   .ex-desc, .status .counts { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .spin, .skel { animation: none; } .status .meter i { transition: none; } }
+
+/* ── comments (Collaboration annotations) ───────────────── */
+.comments-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.seg { display: inline-flex; }
+.seg .btn { border-radius: 0; }
+.seg .btn:first-child { border-radius: var(--r) 0 0 var(--r); }
+.seg .btn:last-child { border-radius: 0 var(--r) var(--r) 0; margin-left: -1px; }
+.seg .btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+.threads { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.thread { border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; background: var(--panel); }
+.thread.resolved { background: var(--sunk); }
+.thread.resolved .comment-text { color: var(--muted); }
+.thread-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.thread .chip { padding: 2px 6px; }
+.chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.pin-num { width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font: 600 11px/1 var(--font-ui);
+  background: #ffc83d; color: #2a2000; flex: none; }
+.pin-num.done { background: var(--line); color: var(--muted); }
+.comment-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0; }
+.mention { color: var(--accent); font-weight: 600; background: var(--accent-soft); border-radius: 4px; padding: 0 3px; }
+.thread-actions { display: flex; gap: 12px; }
+.linkish { border: 0; background: none; padding: 0; color: var(--accent); font-size: 12px; }
+.linkish:hover { text-decoration: underline; }
+.linkish.danger { color: var(--muted); }
+.linkish.danger:hover { color: var(--bad); }
+.replies { margin-top: 8px; padding-left: 10px; border-left: 2px solid var(--line); display: grid; gap: 6px; }
+.reply .comment-text { margin: 2px 0 0; }
+.empty-note { color: var(--muted); padding: 12px; border: 1px dashed var(--line); border-radius: var(--r); text-align: center; }
+.mention-box { display: grid; gap: 6px; }
+.mention-wrap { position: relative; }
+.mention-input { width: 100%; resize: vertical; min-height: 34px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.mention-input:focus { border-color: var(--accent); outline: none; }
+.mention-list { position: absolute; z-index: 5; left: 0; right: 0; top: 100%; margin: 2px 0 0; padding: 4px; list-style: none;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 6px 20px rgb(0 0 0 / .18); max-height: 200px; overflow: auto; }
+.mention-list li { padding: 4px 8px; border-radius: 4px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+.mention-list li[aria-selected="true"], .mention-list li:hover { background: var(--accent-soft); }
+
+/* Over the viewer: the toolbar, the numbered bubbles over pins, and the popovers. */
+.annot-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.annot-bubbles, .annot-pops { position: absolute; inset: 0; }
+.bubble { position: absolute; pointer-events: auto; transform: translate(-50%, calc(-100% - 6px)); min-width: 24px; height: 24px; padding: 0 6px;
+  border-radius: 12px 12px 12px 2px; border: 2px solid #fff; background: #ffc83d; color: #2a2000; font: 700 12px/20px var(--font-ui);
+  box-shadow: 0 2px 6px rgb(0 0 0 / .35); }
+.bubble.done { background: #9aa6ad; color: #fff; }
+.bubble.behind { opacity: .45; }
+.bubble.on { background: var(--accent); color: var(--accent-ink); }
+.annot-pop { position: absolute; pointer-events: auto; width: min(320px, calc(100% - 20px)); max-height: calc(100% - 20px); overflow: auto;
+  background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 8px 26px rgb(0 0 0 / .3); padding: 8px 10px; }
+.pop-title { display: flex; align-items: center; font-weight: 600; margin-bottom: 6px; }
+.annot-bar { position: absolute; top: 8px; left: 8px; display: flex; gap: 4px; align-items: center; padding: 4px; border-radius: var(--r);
+  background: rgb(10 18 22 / .78); color: #e8f0f2; }
+.annot-bar .tool { border: 1px solid transparent; background: none; color: inherit; border-radius: 4px; padding: 3px 8px; font-size: 12px; font-weight: 500; }
+.annot-bar .tool:hover { border-color: rgb(255 255 255 / .3); }
+.annot-bar .tool.on { background: #ffc83d; color: #2a2000; }
+.annot-bar .swatch { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgb(255 255 255 / .35); padding: 0; }
+.annot-bar .swatch.on { border-color: #fff; box-shadow: 0 0 0 2px rgb(255 255 255 / .35); }
+.annot-bar .sep { width: 1px; align-self: stretch; background: rgb(255 255 255 / .2); margin: 0 2px; }
+.annot-hint { position: absolute; top: 46px; left: 8px; right: 8px; width: fit-content; max-width: calc(100% - 16px); padding: 4px 8px; border-radius: 4px;
+  background: rgb(10 18 22 / .78); color: #e8f0f2; font-size: 12px; pointer-events: none; }
+.annot-hint.bad { background: rgb(120 30 25 / .88); pointer-events: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.annot-hint .btn { color: var(--ink); }
+.dialog-error { margin-bottom: 12px; }
+.comment-shot { display: block; margin: 6px 0 4px; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--sunk); max-width: 360px; }
+.comment-shot img { display: block; width: 100%; height: auto; }
+.annot-pop .comment-shot { max-width: 100%; }

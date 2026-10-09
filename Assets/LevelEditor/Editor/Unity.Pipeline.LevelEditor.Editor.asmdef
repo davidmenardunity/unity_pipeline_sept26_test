@@ -1,0 +1,20 @@
+{
+    "name": "Unity.Pipeline.LevelEditor.Editor",
+    "rootNamespace": "Unity.Pipeline.LevelEditor.Editor",
+    "references": [
+        "Unity.Pipeline.LevelEditor",
+        "Unity.RenderPipelines.Universal.Runtime",
+        "Unity.RenderPipelines.Core.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

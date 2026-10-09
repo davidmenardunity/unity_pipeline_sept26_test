@@ -18,7 +18,8 @@
   <script>
     // Hosts the Scene Preview WebGL player inside Pipeline Explorer. The app sends
     // {type: "load", url} (same origin only); a .ca dropped here is loaded through a blob URL.
-    // Both end in PreviewClient.PreviewArchiveFromUrl on the PreviewRig.
+    // Both end in PreviewClient.PreviewArchiveFromUrl on the PreviewRig. Annotation calls go to the
+    // "Annotations" object; its reports reach the app directly (PreviewAnnotationsHost.jslib).
     "use strict";
     const msg = document.getElementById("msg");
     // Embedded (?embedded=1), the host page shows the progress and the player draws no UI of its own.
@@ -34,7 +35,13 @@
     }
 
     addEventListener("message", (e) => {
-      if (e.origin === location.origin && e.data?.type === "load") load(e.data.url);
+      if (e.origin !== location.origin) return;
+      if (e.data?.type === "load") load(e.data.url);
+      // Comments on the preview (PreviewAnnotations): { id, method, arg }; it answers with {type: "annotations"}.
+      else if (e.data?.type === "annotations-call" && unity) {
+        const { id, method, arg } = e.data;
+        unity.SendMessage("Annotations", "Call", JSON.stringify({ id, method, arg }));
+      }
     });
 
     let depth = 0;

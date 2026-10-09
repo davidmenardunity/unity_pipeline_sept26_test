@@ -1,0 +1,19 @@
+{
+    "name": "Unity.Pipeline.PreviewAnnotations.Editor",
+    "rootNamespace": "Unity.Pipeline.PreviewAnnotations.Editor",
+    "references": [
+        "Unity.Pipeline.PreviewAnnotations",
+        "Unity.Pipeline.PreviewStage.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

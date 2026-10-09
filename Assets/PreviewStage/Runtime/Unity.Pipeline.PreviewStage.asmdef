@@ -1,0 +1,16 @@
+{
+    "name": "Unity.Pipeline.PreviewStage",
+    "rootNamespace": "Unity.Pipeline.PreviewStage",
+    "references": [
+        "Unity.Pipeline.Samples.ScenePreview"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

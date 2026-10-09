@@ -94,6 +94,26 @@ function ask({ title, message, value, placeholder, ok = "OK", danger = false, se
   });
 }
 
+// Like ask(), with several fields ({ id, label, value, placeholder, hint }). Resolves to { id: value } or null.
+function askFields({ title, message, fields, ok = "OK", error = null }) {
+  return new Promise((resolve) => {
+    const inputs = fields.map((f) => h("input", { value: f.value ?? "", placeholder: f.placeholder ?? "", spellcheck: "false", "aria-label": f.label,
+      ...(f.secret ? { type: "password", autocomplete: "off" } : {}) }));
+    const done = (v) => { overlay.remove(); resolve(v); };
+    const okBtn = h("button", { class: "btn primary", onclick: () => done(Object.fromEntries(fields.map((f, i) => [f.id, inputs[i].value.trim()]))) }, ok);
+    const overlay = h("div", { class: "overlay", onclick: (e) => e.target === overlay && done(null) },
+      h("div", { class: "dialog", role: "dialog", "aria-modal": "true", "aria-label": title },
+        h("h3", {}, title), message ? h("p", {}, message) : null,
+        error ? h("div", { class: "callout bad dialog-error" }, h("span", { class: "dot bad" }), h("div", {}, h("p", {}, error))) : null,
+        fields.map((f, i) => h("label", { class: "dialog-field" }, h("span", {}, f.label), inputs[i], f.hint ? h("small", { class: "muted" }, f.hint) : null)),
+        h("div", { class: "row-end" }, h("button", { class: "btn", onclick: () => done(null) }, "Cancel"), okBtn)));
+    overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") done(null); else if (e.key === "Enter") okBtn.click(); });
+    document.body.append(overlay);
+    inputs[0]?.focus();
+    inputs[0]?.select();
+  });
+}
+
 function banner(text, kind = "error", action = null) {
   const b = $("banner");
   b.hidden = !text;
@@ -519,7 +539,8 @@ const behindHead = (w, branch) => {
   const head = App.heads?.[branch ?? w.gitBranch];
   return head && w.upstreamRevision && head !== w.upstreamRevision ? head : null;
 };
-const workbenchLabel = (w, branch = App.branch) => `${short(w.workbenchId)} · ${w.upstreamRevision ? "@" + w.upstreamRevision.slice(0, 7) : ""}` +
+const workbenchName = (w) => (w?.name && !/^wb-[0-9a-f]{32}$/i.test(w.name) ? w.name : null);
+const workbenchLabel = (w, branch = App.branch) => `${workbenchName(w) ? `${workbenchName(w)} · ` : ""}${short(w.workbenchId)} · ${w.upstreamRevision ? "@" + w.upstreamRevision.slice(0, 7) : ""}` +
   (w.createdAt ? ` · ${new Date(w.createdAt).toLocaleDateString()}` : "") +
   (!w.gitBranch && w.gitBranchCandidates ? ` · ${w.gitBranchCandidates.join(" or ")}?` : "") +
   (w.gitBranch && behindHead(w, branch) ? ` · behind ${App.heads[branch].slice(0, 7)}` : "");
@@ -605,23 +626,80 @@ async function changeBranch() {
 }
 
 async function newWorkbench() {
-  const repository = await ask({
+  // The project's VCS connections (only a workbench made with one can publish): offer the one for this repo.
+  let connections = null;
+  try { connections = await getJson("/api/vcs-connections"); } catch { /* listed below as unknown */ }
+  const norm = (u) => (u ?? "").toLowerCase().replace(/\.git$/, "").replace(/\/+$/, "");
+  let forRepo = connections?.find((c) => norm(c.url) === norm(App.repository));
+  // No connection for this repo: offer to make one now, so the workbench can publish.
+  let connectionError = null;
+  if (connections && !forRepo && App.repository) {
+    const made = await createVcsConnection(App.repository);
+    if (made?.error) connectionError = made.error;
+    else if (made) { connections.push(made); forRepo = made; }
+  }
+  const vcsHint = connections == null ? "Couldn't list this project's connections. Needed to publish (push) back to git."
+    : !connections.length ? "This project has no VCS connection yet (Build Automation > Source control in the dashboard). Without one the workbench is read-only: it can't publish."
+    : `Needed to publish. This project's: ${connections.map((c) => `${c.name} (${c.gitProvider ?? c.type}) ${c.id}`).join("; ")}`;
+  const today = new Date().toLocaleDateString("en", { month: "short", day: "2-digit" }).toLowerCase().replace(/\s+/g, "-");
+  const r = await askFields({
     title: `New workbench on ${App.branch}`,
-    message: "The public git repo it tracks. The workbench starts from the branch's latest commit and doesn't follow later pushes.",
-    value: App.repository ?? "", placeholder: "https://github.com/owner/repo", ok: "Create",
+    message: "It starts from the branch's latest commit and doesn't follow later pushes.",
+    fields: [
+      { id: "name", label: "Name", value: `${App.branch}-${today}`, placeholder: "space-shooter-main", hint: "Empty: Pipeline names it wb-{id}." },
+      { id: "repository", label: "Repository", value: App.repository ?? "", placeholder: "https://github.com/owner/repo", hint: "The git repo it tracks." },
+      { id: "vcs", label: "VCS connection (optional)", value: forRepo?.id ?? readPref("vcsConnectionId") ?? "", placeholder: "00000000-0000-0000-0000-000000000000", hint: vcsHint },
+    ],
+    ok: "Create",
+    error: connectionError && `The VCS connection wasn't created: ${connectionError}
+You can still create the workbench without one (it won't be able to publish), or paste a connection id.`,
   });
-  if (repository) await createWorkbench(App.branch, repository);
+  if (!r) return;
+  if (!r.repository) { banner("A workbench needs the repository it's made from."); return; }
+  writePref("vcsConnectionId", r.vcs || null);
+  await createWorkbench(App.branch, r.repository, { name: r.name || null, vcsConnectionId: r.vcs || null });
 }
 
 /**
  * Create a workbench on `branch` and follow it until it's ready to read. Returns its id.
  * select: make it the selected workbench (the Compare example creates one for its other side without).
  */
-async function createWorkbench(branch, repository = App.repository, { select = true, replacing = null, example } = {}) {
-  const op = Ops.start({ title: `Create a workbench on ${branch}`, kind: "workbench", example,
+// A git connection for the repo (Build Automation), with a token that can push: what lets a workbench
+// publish. The token goes to Build Automation; this app doesn't keep it. Resolves to the connection, null when
+// skipped, or { error } when it failed (the workbench dialog that follows shows it).
+async function createVcsConnection(repository) {
+  const r = await askFields({
+    title: "Let workbenches publish to git?",
+    message: `There's no VCS connection for ${repository} in this project, so a new workbench could read the repo but not push to it. ` +
+      "A connection holds credentials Pipeline uses to push. Cancel to create the workbench without one.",
+    fields: [
+      { id: "user", label: "GitHub user name", value: readPref("vcsUser") ?? "", placeholder: "octocat" },
+      { id: "token", label: "Personal access token", secret: true, placeholder: "github_pat_…",
+        hint: "Fine-grained, for this repo, with Contents: read and write. Sent to Build Automation, not kept here." },
+      { id: "name", label: "Connection name", value: repository.replace(/\.git$/, "").split("/").pop(), placeholder: "my-repo" },
+    ],
+    ok: "Create connection",
+  });
+  if (!r) return null;
+  if (!r.user || !r.token) return { error: "it needs your user name and a token." };
+  writePref("vcsUser", r.user);
+  const op = Ops.start({ title: `Connect ${repository.split("/").slice(-2).join("/")}`, kind: "workbench", steps: [{ id: "create", label: "Create the VCS connection (Build Automation)" }] });
+  try {
+    op.step("create", "active");
+    const c = await postJson("/api/vcs-connections", { name: r.name, url: repository, user: r.user, token: r.token }, op);
+    op.step("create", "done", short(c.id)).done(`Connection ${c.name} created`);
+    return c;
+  } catch (e) {
+    op.fail(e);
+    return { error: describeError(e) };
+  }
+}
+
+async function createWorkbench(branch, repository = App.repository, { select = true, replacing = null, example, name = null, vcsConnectionId = null } = {}) {
+  const op = Ops.start({ title: `Create ${name ? `workbench ${name}` : "a workbench"} on ${branch}`, kind: "workbench", example,
     steps: [{ id: "service", label: "Project service" }, { id: "created", label: "Create the workbench" }, { id: "validating", label: "Import and validate" }, { id: "settled", label: "Ready to read" }] });
   Object.assign(op, { creating: true, branch, strip: true });
-  op.retry = { label: "Try again", run: () => createWorkbench(branch, repository, { select, example }) };
+  op.retry = { label: "Try again", run: () => createWorkbench(branch, repository, { select, example, name, vcsConnectionId }) };
   if (select) {
     $("newWorkbench").disabled = true;
     selectWorkbench(null);
@@ -637,12 +715,12 @@ async function createWorkbench(branch, repository = App.repository, { select = t
       before.delete(replacing);
     }
     op.step("created", "active", "creating");
-    const wb = await postJson("/api/workbenches", { branch, repository }, op);
+    const wb = await postJson("/api/workbenches", { branch, repository, name, vcsConnectionId }, op);
     if (before.has(wb.workbenchId)) {
       // The pipeline handed back a workbench we already had: nothing new was made.
       const from = wb.upstreamRevision?.slice(0, 7), head = App.heads?.[branch];
       op.step("created", "failed", `got ${short(wb.workbenchId)} back`);
-      op.retry = { label: `Delete ${short(wb.workbenchId)} and create a new one`, run: () => createWorkbench(branch, repository, { select, replacing: wb.workbenchId, example }) };
+      op.retry = { label: `Delete ${short(wb.workbenchId)} and create a new one`, run: () => createWorkbench(branch, repository, { select, replacing: wb.workbenchId, example, name, vcsConnectionId }) };
       op.fail(`Pipeline handed back the existing workbench ${short(wb.workbenchId)}${from ? `, made from ${from}` : ""}, instead of creating one` +
         `${head && from && !head.startsWith(from) ? `. ${branch} is now at ${head.slice(0, 7)}` : ""}.`);
       await loadWorkbenches(select ? wb.workbenchId : App.wb);
@@ -725,6 +803,7 @@ async function publishWorkbench() {
       op.retry = null;
       op.fail(`Pipeline couldn't push to ${branch}: it has no git credentials for this repository. ` +
         "This workbench was made from the repo's public URL, without a VCS connection, so Pipeline can read the repo but not push to it. " +
+        "A workbench can't get a connection afterwards: create a new one with a VCS connection id (New workbench), then move your changes to it. " +
         "Nothing changed on GitHub.\n\n" + text);
     } else op.fail(e);
   } finally {
@@ -965,6 +1044,14 @@ function fileTree(ul, opts = {}) {
     const item = h("button", { class: "item" + (isMeta ? " meta" : "") + (!isFolder && opts.dimFile?.(path) ? " dim" : ""), type: "button", title: path },
       h("span", { class: "tw" }, isFolder ? "▸" : ""), name);
     const li = h("li", { "data-path": path, "data-folder": isFolder ? "1" : null }, item);
+    if (!isFolder && opts.draggable?.(path)) {
+      item.draggable = true;
+      item.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("application/x-pipeline-asset", JSON.stringify({ path }));
+        e.dataTransfer.setData("text/plain", path);
+        e.dataTransfer.effectAllowed = "copy";
+      });
+    }
     let loaded = false;
     li.expand = async () => {
       if (loaded) return;

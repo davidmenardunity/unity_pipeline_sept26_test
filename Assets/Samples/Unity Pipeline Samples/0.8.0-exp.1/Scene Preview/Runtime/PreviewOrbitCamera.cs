@@ -35,14 +35,43 @@ namespace Unity.Pipeline.Samples.ScenePreview
 
         void Awake() => m_Camera = GetComponent<Camera>();
 
+        /// <summary>
+        /// While set, the left button and one-finger drags belong to someone else (annotation pins and
+        /// drawings): only the wheel and pinch still zoom, and the camera doesn't auto-spin.
+        /// </summary>
+        public bool Hold { get; set; }
+
+        bool m_Parked;   // a viewpoint was set from outside: no auto-spin until the user moves the camera
+
         void LateUpdate()
         {
             bool interacted = HandleTouch() || HandleMouse();
+            if (interacted) m_Parked = false;
 
-            m_IdleTimer = interacted ? 0f : m_IdleTimer + Time.deltaTime;
+            m_IdleTimer = interacted || Hold || m_Parked ? 0f : m_IdleTimer + Time.deltaTime;
             if (m_IdleTimer >= m_IdleBeforeAutoSpin)
                 m_Yaw += m_AutoSpinSpeed * Time.deltaTime;
 
+            Apply();
+        }
+
+        /// <summary>The point the camera orbits.</summary>
+        public Vector3 Pivot => m_Pivot;
+
+        /// <summary>
+        /// Look at <paramref name="pivot"/> from <paramref name="position"/> (e.g. a saved viewpoint), and
+        /// stay there until the user moves the camera.
+        /// </summary>
+        public void LookFrom(Vector3 position, Vector3 pivot)
+        {
+            var offset = position - pivot;
+            if (offset.sqrMagnitude < 1e-6f) return;
+            m_Pivot = pivot;
+            m_Distance = Mathf.Clamp(offset.magnitude, m_MinDistance * 0.25f, m_MaxDistance * 2f);
+            var dir = -offset.normalized;   // from the camera toward the pivot
+            m_Pitch = Mathf.Clamp(Mathf.Asin(Mathf.Clamp(-dir.y, -1f, 1f)) * Mathf.Rad2Deg, -89f, 89f);
+            m_Yaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+            m_Parked = true;
             Apply();
         }
 
@@ -66,7 +95,7 @@ namespace Unity.Pipeline.Samples.ScenePreview
                 active++;
             }
 
-            if (active == 1)
+            if (active == 1 && !Hold)
             {
                 var delta = first.delta.ReadValue();
                 m_Yaw += delta.x * m_OrbitSpeed;
@@ -98,7 +127,7 @@ namespace Unity.Pipeline.Samples.ScenePreview
             Vector3 position = mouse.position.ReadValue();
             if (mouse.leftButton.wasPressedThisFrame)
                 m_LastMousePosition = position;
-            if (mouse.leftButton.isPressed)
+            if (mouse.leftButton.isPressed && !Hold)
             {
                 var delta = position - m_LastMousePosition;
                 m_LastMousePosition = position;
@@ -175,7 +204,7 @@ namespace Unity.Pipeline.Samples.ScenePreview
 #endif
 
         void Zoom(float amount)
-            => m_Distance = Mathf.Clamp(m_Distance + amount, m_MinDistance, m_MaxDistance);
+            => m_Distance = Mathf.Clamp(m_Distance + amount, Mathf.Min(m_MinDistance, m_Distance), Mathf.Max(m_MaxDistance, m_Distance));
 
         void Apply()
         {

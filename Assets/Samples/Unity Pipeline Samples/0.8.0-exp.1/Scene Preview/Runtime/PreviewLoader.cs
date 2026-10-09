@@ -58,6 +58,15 @@ namespace Unity.Pipeline.Samples.ScenePreview
             m_Slots = new[] { new Slot(), new Slot() };
         }
 
+        /// <summary>
+        /// Raised when a preview swaps into view, with the instance and its world bounds once it's placed
+        /// (the preview stage makes room around it; annotations hang off it).
+        /// </summary>
+        public static event System.Action<GameObject, Bounds> Shown;
+
+        /// <summary>The preview on screen, or null.</summary>
+        public GameObject Current => HasPreview ? m_Slots[m_Active].Instance : null;
+
         /// <summary>True once a preview instance is shown under the preview root.</summary>
         public bool HasPreview => m_Active >= 0 && m_Slots[m_Active].Instance != null;
 
@@ -233,6 +242,7 @@ namespace Unity.Pipeline.Samples.ScenePreview
             m_Routine = null;
             LastOutcome = Outcome.Shown;
             Debug.Log($"[Preview] swapped in slot {p}: '{incoming.name}'");
+            Shown?.Invoke(incoming, GetCompoundBounds(incoming));
         }
 
         void FailPending(int p, string reason)
@@ -288,7 +298,7 @@ namespace Unity.Pipeline.Samples.ScenePreview
             cam.transform.LookAt(bounds.center);
         }
 
-        static Bounds GetCompoundBounds(GameObject go)
+        public static Bounds GetCompoundBounds(GameObject go)
         {
             var renderers = go.GetComponentsInChildren<Renderer>();
             if (renderers.Length == 0)

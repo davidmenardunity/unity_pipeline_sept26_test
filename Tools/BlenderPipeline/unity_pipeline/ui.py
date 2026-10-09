@@ -53,7 +53,9 @@ class UNITY_PIPELINE_MT_workbenches(bpy.types.Menu):
             commit = (w.get("upstreamRevision") or "")[:7]
             note = (f"  ({' or '.join(w['gitBranchCandidates'])}?)" if not w.get("gitBranch") and w.get("gitBranchCandidates")
                     else f"  (behind {S.branch} @{S.heads[S.branch][:7]})" if S.behind(w) else "")
-            self.layout.operator("unity_pipeline.pick_workbench", text=f"{w['workbenchId'][:8]}  @{commit}{note}",
+            name = w.get("name") or ""
+            label = f"{name}  ({w['workbenchId'][:8]})" if name and not (name.startswith("wb-") and len(name) == 35) else w["workbenchId"][:8]
+            self.layout.operator("unity_pipeline.pick_workbench", text=f"{label}  @{commit}{note}",
                                  icon="CHECKMARK" if w["workbenchId"] == S.wb else "BLANK1").workbench = w["workbenchId"]
 
         for w in wbs:
