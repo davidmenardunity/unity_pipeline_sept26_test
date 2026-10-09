@@ -169,7 +169,7 @@
     const s = EX.sel;
     if (!s) return;
     const run = previewOp(s.path);
-    put($("exViewerBadge"), run ? h("span", { class: "spin" }) : EX.viewer?.shown?.key === Archives.key(s.wb, s.rev, s.guid) ? h("span", { class: "dot ok", title: "Showing this asset" }) : null);
+    put($("exViewerBadge"), run ? h("span", { class: "spin" }) : viewerFor(s.path, false)?.shown?.key === Archives.key(s.wb, s.rev, s.guid) ? h("span", { class: "dot ok", title: "Showing this asset" }) : null);
     $("exCallsBadge").textContent = callsFor(s.path).filter((c) => !c.isPoll).length;
   }
 
@@ -324,18 +324,30 @@
 
   const previewOp = (path) => Ops.list.find((o) => o.kind === "preview" && o.asset === path && o.running && o.wb === App.wb && o.rev === App.revision);
 
+  // Objects show in the Scene Preview player; scenes (.unity) in the Scene Viewer player, in the same
+  // stage (only one of the two frames is visible).
   function viewer() {
     EX.viewer ??= new Viewer($("exPlayer"), "Explorer");
     return EX.viewer;
+  }
+
+  function sceneViewer() {
+    EX.sceneViewer ??= new Viewer($("exScenePlayer"), "Explorer, scenes", "sceneplayer.html?embedded=1");
+    return EX.sceneViewer;
+  }
+
+  function viewerFor(path, create = true) {
+    if (isScene(path)) return create ? sceneViewer() : EX.sceneViewer;
+    return create ? viewer() : EX.viewer;
   }
 
   function showArchiveIfBuilt() {
     const s = EX.sel;
     const built = s?.guid && Archives.get(s.wb, s.rev, s.guid);
     const key = s?.guid && Archives.key(s.wb, s.rev, s.guid);
-    if (built && viewer().shown?.key !== key) {
-      viewer().load(built.url, fileName(s.path), key, "explorer");
-      StageComments.setContext(s);
+    if (built && viewerFor(s.path).shown?.key !== key) {
+      viewerFor(s.path).load(built.url, fileName(s.path), key, "explorer");
+      if (!isScene(s.path)) StageComments.setContext(s);
     }
     renderViewer();
   }
@@ -344,7 +356,7 @@
     const s = EX.sel;
     if (!s?.guid || !canPreview(s.path)) return;
     if (rebuild) Archives.built.delete(Archives.key(s.wb, s.rev, s.guid));
-    viewer().ensure("explorer");
+    viewerFor(s.path).ensure("explorer");
     const op = Ops.start({ title: `Preview ${fileName(s.path)}`, kind: "preview", asset: s.path,
       steps: [{ id: "archive", label: "Pipeline builds the WebGL content archive" }, { id: "load", label: "Load it in the viewer" }] });
     Object.assign(op, { wb: s.wb, rev: s.rev });
@@ -352,7 +364,7 @@
     op.retry = { label: "Retry the preview", run: () => { if (EX.sel?.path !== s.path) selectAsset(s.path); showTab("viewer"); preview({ rebuild: true }); } };
     renderViewer();
     try {
-      const r = await Archives.build(s.wb, s.rev, s.guid, op);
+      const r = await Archives.build(s.wb, s.rev, s.guid, op, { scene: isScene(s.path) });
       if (EX.sel?.path !== s.path) {
         op.step("load", "done", "skipped: another asset is selected");
         op.done("Archive ready (finished in the background)");
@@ -360,8 +372,8 @@
         return;
       }
       op.step("load", "active", "sent to the player");
-      viewer().load(r.url, fileName(s.path), Archives.key(s.wb, s.rev, s.guid), "explorer");
-      StageComments.setContext(s);
+      viewerFor(s.path).load(r.url, fileName(s.path), Archives.key(s.wb, s.rev, s.guid), "explorer");
+      if (!isScene(s.path)) StageComments.setContext(s);
       op.step("load", "done", r.artifact);
       op.done(`${r.artifact} in the viewer`);
     } catch (e) {
@@ -374,13 +386,17 @@
     const s = EX.sel;
     if (!s || EX.tab !== "viewer") return;
     const overlay = $("exStageOverlay");
-    const v = EX.viewer;
+    const scene = isScene(s.path);
+    $("exPlayer").hidden = scene;
+    $("exScenePlayer").hidden = !scene;
+    if (scene) viewerFor(s.path).ensure("explorer");
+    const v = viewerFor(s.path, false);
     const run = previewOp(s.path);
     const last = Ops.list.find((o) => o.kind === "preview" && o.asset === s.path && o.wb === s.wb && o.rev === s.rev);
     const key = s.guid ? Archives.key(s.wb, s.rev, s.guid) : null;
     const showing = v?.shown?.key === key && key;
     let over = null, info = [];
-    if (!canPreview(s.path)) over = h("div", {}, h("b", {}, "No 3D preview for this file type."), h("div", {}, "The viewer shows prefabs, models (.fbx, .obj) and materials."));
+    if (!canPreview(s.path)) over = h("div", {}, h("b", {}, "No 3D preview for this file type."), h("div", {}, "The viewer shows prefabs, models (.fbx, .obj), materials and scenes (.unity)."));
     else if (!s.guid) over = s.error ? h("div", {}, "Couldn't resolve this asset.") : loadingLine("Resolving the asset…");
     else if (run) over = h("div", {}, h("div", { style: "display:flex;gap:8px;align-items:center;margin-bottom:8px" }, h("span", { class: "spin" }),
       h("b", {}, run.activeStep?.label ?? "Working"), h("span", { class: "grow" }), h("span", { class: "num", "data-op": run.id }, secs(run.elapsed))), stepsEl(run));
@@ -394,6 +410,22 @@
         h("button", { class: "btn primary", onclick: () => (built ? showArchiveIfBuilt() : preview()) }, built ? "Load in the viewer" : "Build and preview"));
     }
     let progressBox = !!run;
+    // A scene: its own loading, then how to play it (hidden while the mouse is captured).
+    if (!over && scene && showing && v?.scene) {
+      const st = v.scene;
+      if (st.state === "downloading" || st.state === "loading") {
+        over = h("div", { style: "display:flex;gap:8px;align-items:center" }, h("span", { class: "spin" }), h("b", {}, st.state === "downloading" ? "Downloading the scene" : "Loading the scene"),
+          h("span", { style: "opacity:.75" }, st.state === "downloading" && st.progress >= 0 ? `${Math.round(st.progress * 100)}%` : st.detail ?? ""));
+        progressBox = true;
+      } else if (st.state === "error") {
+        over = h("div", {}, h("b", {}, "The scene didn't load."), h("div", {}, st.detail));
+        info.push(h("div", { class: "callout bad" }, h("span", { class: "dot bad" }), h("div", {}, h("p", {}, st.detail),
+          h("div", { class: "actions" }, h("button", { class: "btn small", onclick: () => { v.shown = null; showArchiveIfBuilt(); } }, "Load again"), h("button", { class: "btn small", onclick: () => preview({ rebuild: true }) }, "Rebuild the archive")))));
+      } else if (st.state === "loaded" && !st.captured) {
+        over = h("div", {}, h("b", {}, "Click the view to play. "), `Mouse looks, WASD moves, Shift runs, Space jumps, F ${st.mode === "flying" ? "walks" : "flies"}. Esc gives the mouse back.`);
+        progressBox = true;
+      }
+    }
     if (!over && playerStartingEl(v)) { over = playerStartingEl(v); progressBox = true; }
     else if (run && playerStartingEl(v)) over = h("div", {}, playerStartingEl(v), h("div", { style: "height:8px" }), over);
     if (v?.failed) info.unshift(h("div", { class: "callout bad" }, h("span", { class: "dot bad" }), h("div", {}, h("p", {}, v.failed))));
@@ -404,12 +436,15 @@
     put($("exStageBar"),
       showing ? h("span", { class: "chip" }, `${fileName(s.path).replace(/\.[^.]+$/, "")}${built?.artifact ?? ".ca"}`) : h("span", { class: "chip" }, v?.ready ? "player ready" : v ? "player starting…" : "player not started"),
       showing && built ? h("span", { class: "muted small" }, `from the ${built.platform} environment ${short(built.environmentId)}`) : null,
+      scene && showing && v?.scene?.state === "loaded" ? h("span", { class: "muted small" }, `${v.scene.objects} objects${v.scene.camera ? ` · from its camera "${v.scene.camera}"` : ""}`) : null,
       h("span", { class: "grow" }),
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: EX.autoPreview ? true : null, onchange: (e) => { EX.autoPreview = e.target.checked; writePref("explorer.autoPreview", EX.autoPreview); } }), "Preview on select"),
       canPreview(s.path) && s.guid && !run ? h("button", { class: "btn small", onclick: () => preview({ rebuild: true }) }, showing ? "Rebuild" : "Build") : null);
     StageComments.render();
     put($("exViewerInfo"), info,
-      h("p", { class: "muted small", style: "margin:0" }, "Materials using shader model 4.5 render pink on WebGL 2; the player uses WebGPU when the browser offers it. You can also drop a .ca file on the player."));
+      h("p", { class: "muted small", style: "margin:0" }, scene
+        ? "Scenes play in their own player (SceneViewer_WebGL), from an archive of the whole scene built by Pipeline (PreviewSceneImporter). Scripts the player wasn't built with load as missing components."
+        : "Materials using shader model 4.5 render pink on WebGL 2; the player uses WebGPU when the browser offers it. You can also drop a .ca file on the player."));
     renderBadges();
   }
 

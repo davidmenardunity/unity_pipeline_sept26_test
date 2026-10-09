@@ -23,7 +23,8 @@ const Collab = {
   changed: 0,   // bumped on every write: lists re-read
 
   project: () => App.config?.projectId,
-  target: (guid) => `assets/projects/${App.config?.projectId}/assets/${guid}`,
+  // unity/project/…: the targets the Collaboration dashboard shows.
+  target: (guid) => `unity/project/${App.config?.projectId}/assets/${guid}`,
 
   async req(method, path, body, op) {
     const res = await fetch(`/api/collab/projects/${Collab.project()}/${path}`, {
@@ -52,7 +53,7 @@ const Collab = {
 
   /** Every comment in the project, newest activity first (export: includes which asset). */
   async everywhere(op) {
-    const r = await Collab.req("POST", "annotations/export", { target: `assets/projects/${Collab.project()}/**`, limit: 100, sortingOrder: "Descending", sortingField: "latestReply" }, op);
+    const r = await Collab.req("POST", "annotations/export", { target: `unity/project/${Collab.project()}/**`, limit: 100, sortingOrder: "Descending", sortingField: "latestReply" }, op);
     return (r?.annotations ?? []).filter((a) => !a.isReply);
   },
 

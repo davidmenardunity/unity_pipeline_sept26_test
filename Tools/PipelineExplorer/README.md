@@ -50,6 +50,13 @@ Build Profile** recreates its scene and profile).
     panel; reads for the previous one stop, and a preview being built finishes in the background.
     The player stands the asset on a small stage (sky, sun, a plaza, trees and street props in a ring
     that makes room for big assets; `Assets/PreviewStage`).
+  - **Scenes** (`sceneplayer.html`, Unity side in `Assets/SceneViewer`): selecting a `.unity` file in the
+    Explorer has Pipeline build an archive of the whole scene (`PreviewSceneImporter`: the objects it uses as
+    one content file, the scene as another, with the scene's own shader features) and plays it in its own
+    player (the `SceneViewer_WebGL` build profile, built to `Builds/SceneViewer_WebGL`). Click the view to
+    capture the mouse, Esc to release it; mouse looks, WASD moves, Shift runs, Space jumps, F switches
+    walking and flying. Scripts the player wasn't built with load as missing components. Set up with
+    **Tools > Scene Viewer > Create Scene and Build Profile**.
   - **Comments** (`comments.js`, Unity side in `Assets/PreviewAnnotations`): Unity Cloud
     Collaboration annotations on the asset. In the **Viewer**, **Comment** pins one on the model (or
     the ground) and **Draw** draws strokes that stay in place in the scene; either opens a box for the
@@ -104,7 +111,7 @@ Build Profile** recreates its scene and profile).
 | **Source** | `GET …/revisions/{rev}/files/{path}` |
 | **Preview** | `POST …/environments/{env}/revisions/{rev}/previews` → job → `GET …/previews/{guid}?allowAsync=false` |
 | **Import results** | `POST …/environments/{env}/revisions/{rev}/imports {addresses:[G:{guid}]}` (or `T:{guid}+{importer type}`), then **Fetch**: `GET …/imports/{address}/{artifact}` |
-| **Comments** | `/api/collab/…` passes through to `/collaboration/v1/…` (same host as the pipeline): `POST projects/{p}/annotations-search {target: assets/projects/{p}/assets/{guid}}`, `POST …/annotations/export` (every asset), `GET …/annotations/{id}/replies`, `POST …/annotations` (comments and replies), `PATCH …/resolve` / `…/unresolve`, `DELETE …/annotations/{id}`. The player's Collaboration SDK calls the same route. Collaboration refuses the pipeline's user JWT (issuer `unity-ads`) and takes a Genesis access token: **Use a token for comments…** takes one (kept like the first, in `collab-token.dat`). `@` lists come from `GET …/api/access/legacy/v1/organizations/{org}/members`. |
+| **Comments** | `/api/collab/…` passes through to `/collaboration/v1/…` (same host as the pipeline): `POST projects/{p}/annotations-search {target: unity/project/{p}/assets/{guid}}` (the target the Collaboration dashboard shows), `POST …/annotations/export` (every asset), `GET …/annotations/{id}/replies`, `POST …/annotations` (comments and replies), `PATCH …/resolve` / `…/unresolve`, `DELETE …/annotations/{id}`. The player's Collaboration SDK calls the same route. Collaboration refuses the pipeline's user JWT (issuer `unity-ads`) and takes a Genesis access token: **Use a token for comments…** takes one (kept like the first, in `collab-token.dat`). `@` lists come from `GET …/api/access/legacy/v1/organizations/{org}/members`. |
 | Exchange (in **Activity** and the **Calls** tab) | Every call the server made, grouped by operation. Select one for the full exchange (token redacted) or **Copy as curl**. |
 
 Known staging limits (see the pipeline playground's README): the first import

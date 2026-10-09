@@ -72,7 +72,9 @@ app.UseStaticFiles(new StaticFileOptions
 var playerDir = WebGlPlayer.FindBuild(app.Environment.ContentRootPath);
 // The level editor's runtime (LevelEditor_WebGL build profile), at /level-player.
 var levelPlayerDir = WebGlPlayer.FindBuild(app.Environment.ContentRootPath, WebGlPlayer.LevelEditorFolder, "PIPELINE_EXPLORER_LEVEL_PLAYER");
-foreach (var (dir, at) in new[] { (playerDir, "/player"), (levelPlayerDir, "/level-player") })
+// The scene viewer's runtime (SceneViewer_WebGL build profile), at /scene-player.
+var scenePlayerDir = WebGlPlayer.FindBuild(app.Environment.ContentRootPath, WebGlPlayer.SceneViewerFolder, "PIPELINE_EXPLORER_SCENE_PLAYER");
+foreach (var (dir, at) in new[] { (playerDir, "/player"), (levelPlayerDir, "/level-player"), (scenePlayerDir, "/scene-player") })
 {
     if (dir is null) continue;
     var types = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
@@ -408,6 +410,7 @@ envRev.MapGet("/preview", async (Pipelines p, string wb, string env, string rev,
 // Which WebGL build files the player page should load (names vary with the build's compression).
 api.MapGet("/player", () => WebGlPlayer.Describe(playerDir));
 api.MapGet("/level-player", () => WebGlPlayer.Describe(levelPlayerDir, "level-player", WebGlPlayer.LevelEditorFolder, "LevelEditor_WebGL"));
+api.MapGet("/scene-player", () => WebGlPlayer.Describe(scenePlayerDir, "scene-player", WebGlPlayer.SceneViewerFolder, "SceneViewer_WebGL"));
 
 // One call for "preview this asset in the player": a content archive (.ca) built by the pipeline for
 // the player's platform, and the URL the player downloads it from. Finds or creates the workbench's
@@ -528,6 +531,14 @@ api.MapMethods("/collab/{**path}", ["GET", "POST", "PUT", "PATCH", "DELETE"], as
         await request.Body.CopyToAsync(buffer, ct);
         body = buffer.ToArray();
     }
+    // Players built before the switch target comments at assets/projects/…, which the Collaboration dashboard
+    // doesn't list: send them to unity/project/… like the rest.
+    if (body is { Length: > 0 })
+    {
+        var text = Encoding.UTF8.GetString(body);
+        if (text.Contains("\"assets/projects/", StringComparison.Ordinal))
+            body = Encoding.UTF8.GetBytes(text.Replace("\"assets/projects/", "\"unity/project/"));
+    }
     // The SDK's URLs carry the API prefix too (…/api/collab/collaboration/v1/projects/…).
     var rest = path.StartsWith("collaboration/v1/", StringComparison.Ordinal) ? path["collaboration/v1/".Length..] : path;
     var (status, bytes) = await p.Default.CollaborationAsync(new HttpMethod(request.Method), rest + request.QueryString,
@@ -617,6 +628,7 @@ static class WebGlPlayer
     public const string ContentImporter = "Unity.Pipeline.Samples.ScenePreview.Importer.PreviewContentImporter";
     const string BuildFolder = "ScenePreview_WebGL";
     public const string LevelEditorFolder = "LevelEditor_WebGL";
+    public const string SceneViewerFolder = "SceneViewer_WebGL";
 
     /// <summary>
     /// The build folder: PIPELINE_EXPLORER_PLAYER, else Builds/ScenePreview_WebGL in the Unity project the
@@ -637,8 +649,9 @@ static class WebGlPlayer
     {
         if (dir is null)
             return new { available = false, message = $"No WebGL player build yet: build the {profile} profile to Builds/{folder} in the Unity project, then restart the app." };
-        var files = Directory.GetFiles(Path.Combine(dir, "Build")).Select(Path.GetFileName).ToList();
-        string? Find(string infix) => files.FirstOrDefault(f => f!.Contains(infix, StringComparison.Ordinal));
+        // Newest first: a build switched between compressed and uncompressed leaves the old files behind.
+        var files = new DirectoryInfo(Path.Combine(dir, "Build")).GetFiles().OrderByDescending(f => f.LastWriteTimeUtc).Select(f => f.Name).ToList();
+        string? Find(string infix) => files.FirstOrDefault(f => f.Contains(infix, StringComparison.Ordinal));
         var loader = Find(".loader.js");
         var data = Find(".data");
         var framework = Find(".framework.js");

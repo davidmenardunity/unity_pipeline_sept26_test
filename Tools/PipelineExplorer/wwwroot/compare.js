@@ -116,7 +116,7 @@
   function maybeContinue(path) {
     const { a, b } = CM;
     if (CM.path !== path || !a || !b || !["ready", "missing"].includes(a.state) || !["ready", "missing"].includes(b.state)) return;
-    if (canPreview(path)) for (const [key, side] of [["A", a], ["B", b]]) if (side.state === "ready" && side.guid) preview(key, side, path);
+    if (canPreviewObject(path)) for (const [key, side] of [["A", a], ["B", b]]) if (side.state === "ready" && side.guid) preview(key, side, path);
     if (TEXTY.test(path) && a.state === "ready" && b.state === "ready") diff(path);
   }
 
@@ -231,13 +231,13 @@
       const failed = k && !run && Ops.list.find((o) => o.kind === "compare-preview" && o.archiveKey === k)?.state === "failed" ? Ops.list.find((o) => o.archiveKey === k) : null;
       put(title, h("b", {}, side?.branch ?? "…"), side?.rev ? h("span", { class: "muted mono" }, `rev ${side.rev}`) : null, h("span", { class: "grow" }),
         showing ? h("span", { class: "chip" }, "showing") : null,
-        side?.guid && canPreview(CM.path) && !run ? h("button", { class: "btn small ghost", onclick: () => { Archives.built.delete(k); v.clear(); preview(key, side, CM.path); } }, "Rebuild") : null);
+        side?.guid && canPreviewObject(CM.path) && !run ? h("button", { class: "btn small ghost", onclick: () => { Archives.built.delete(k); v.clear(); preview(key, side, CM.path); } }, "Rebuild") : null);
       let over = null, progressBox = false;
       if (!side || ["reading", "settling"].includes(side.state)) over = h("div", { class: "loading-line", style: "color:inherit;justify-content:center" }, h("span", { class: "spin" }), side?.state === "settling" ? "Waiting for the workbench…" : "Finding the asset…");
       else if (side.state === "no-workbench" || side.state === "no-branch") over = h("div", {}, "Pick a branch with a workbench, or create one, above.");
       else if (side.state === "missing") over = h("div", {}, h("b", {}, "Not on this branch."), h("div", {}, `${fileName(CM.path)} isn't in ${side.branch}'s workbench at this revision.`));
       else if (side.state === "error") over = h("div", {}, h("b", {}, "Couldn't read this side."), h("div", {}, side.error));
-      else if (!canPreview(CM.path)) over = h("div", {}, h("b", {}, "No 3D preview for this file type."), h("div", {}, "The facts and the diff below compare it."));
+      else if (!canPreviewObject(CM.path)) over = h("div", {}, h("b", {}, "No 3D preview for this file type."), h("div", {}, "The facts and the diff below compare it."));
       else if (run) { over = h("div", { style: "text-align:left" }, playerStartingEl(v), stepsEl(run)); progressBox = true; }
       else if (failed) over = h("div", {}, h("b", {}, "The preview failed."), h("div", { style: "margin:6px 0" }, failed.error?.split("\n")[0]),
         h("button", { class: "btn small primary", onclick: () => preview(key, side, CM.path) }, "Retry"));
@@ -268,13 +268,13 @@
     // still look different. Compare them once both are built.
     const arch = (side) => side?.guid ? Archives.get(side.wb, side.rev, side.guid)?.contentHash : null;
     const ha = arch(a), hb = arch(b);
-    const previewsKnown = canPreview(CM.path ?? "") && ha && hb;
+    const previewsKnown = canPreviewObject(CM.path ?? "") && ha && hb;
     const samePreview = previewsKnown && ha === hb;
-    rows.push(["Preview archive", ha ?? (canPreview(CM.path ?? "") ? "building…" : "—"), hb ?? (canPreview(CM.path ?? "") ? "building…" : "—")]);
+    rows.push(["Preview archive", ha ?? (canPreviewObject(CM.path ?? "") ? "building…" : "—"), hb ?? (canPreviewObject(CM.path ?? "") ? "building…" : "—")]);
     let summary = null;
     if (ready) {
-      const same = sameFile && sameMeta && (!canPreview(CM.path ?? "") || samePreview);
-      const pending = sameFile && sameMeta && canPreview(CM.path ?? "") && !previewsKnown;
+      const same = sameFile && sameMeta && (!canPreviewObject(CM.path ?? "") || samePreview);
+      const pending = sameFile && sameMeta && canPreviewObject(CM.path ?? "") && !previewsKnown;
       const text = same ? "Identical on both branches, including what it uses."
         : pending ? "The file is the same on both branches. Waiting for both previews to compare what it uses…"
         : sameFile && sameMeta ? "The file is the same, but what it uses differs (a mesh, material or texture changed): see the viewers."

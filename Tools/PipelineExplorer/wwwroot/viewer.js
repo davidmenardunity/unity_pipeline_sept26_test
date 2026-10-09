@@ -4,7 +4,11 @@
 "use strict";
 
 const PREVIEWABLE = new Set(["prefab", "fbx", "obj", "mat"]);   // PreviewLoader.CanPresent
-const canPreview = (path) => PREVIEWABLE.has(ext(path));
+// Scenes (.unity) play in their own player (SceneViewer_WebGL), from archives the scene importer builds.
+const SCENE_IMPORTER = "Unity.Pipeline.SceneViewer.Editor.PreviewSceneImporter";
+const isScene = (path) => ext(path) === "unity";
+const canPreview = (path) => PREVIEWABLE.has(ext(path)) || isScene(path);
+const canPreviewObject = (path) => PREVIEWABLE.has(ext(path));   // what the Scene Preview player shows
 
 class Viewer {
   static all = [];
@@ -34,6 +38,7 @@ class Viewer {
   load(url, name, key, example) {
     this.ensure(example);
     this.shown = { url, name, key };
+    this.scene = null;
     if (!this.ready) { this.pending = url; return; }
     this.iframe.contentWindow.postMessage({ type: "load", url }, location.origin);
   }
@@ -74,6 +79,15 @@ class Viewer {
           if (c) d.ok ? c.resolve(d.value) : c.reject(new Error(d.error));
         } else App.emit("annotations", { viewer: v, ...d });
       }
+      else if (m.type === "scene-viewer") {
+        v.scene = { ...(v.scene ?? {}), ...m.data, at: Date.now() };
+        if (["captured", "released", "walking", "flying"].includes(m.data.state)) {
+          v.scene.state = v.scene.loadedState ?? "loaded";
+          if (m.data.state === "captured" || m.data.state === "released") v.scene.captured = m.data.state === "captured";
+          else v.scene.mode = m.data.state;
+        } else if (m.data.state === "loaded") v.scene.loadedState = "loaded";
+        App.emit("viewer", v);
+      }
       else if (m.type === "player-error") { v.startOp?.fail(m.message); v.failed = m.message; App.emit("viewer", v); }
       else if (m.type === "player-ready") {
         v.ready = true;
@@ -107,11 +121,12 @@ const Archives = {
    * The first one for an asset (or in a new environment) can take minutes: the server re-sends
    * the request while the pipeline is still producing it.
    */
-  async build(wb, rev, guid, op) {
+  async build(wb, rev, guid, op, { scene = false } = {}) {
     const k = this.key(wb, rev, guid);
     if (this.built.has(k)) { op.step("archive", "done", "built earlier in this session"); return this.built.get(k); }
-    op.step("archive", "active", "the first one for an asset can take a few minutes");
-    const r = await postJson(`/api/workbenches/${wb}/revisions/${enc(rev)}/player-archive`, { guid, platform: "WebGL" }, op);
+    op.step("archive", "active", scene ? "a whole scene: the first build can take several minutes" : "the first one for an asset can take a few minutes");
+    const r = await postJson(`/api/workbenches/${wb}/revisions/${enc(rev)}/player-archive`,
+      { guid, platform: "WebGL", ...(scene ? { importer: SCENE_IMPORTER } : {}) }, op);
     for (const s of r.steps ?? []) op.note(s);
     op.step("archive", "done", r.artifact);
     this.built.set(k, r);

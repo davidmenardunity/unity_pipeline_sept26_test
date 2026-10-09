@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scene Viewer player</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #1d2129; }
+    #unity-canvas { width: 100%; height: 100%; display: block; background: #1d2129; outline: none; }
+  </style>
+</head>
+<body>
+  <canvas id="unity-canvas" tabindex="-1"></canvas>
+  <script>
+    // Hosts the Scene Viewer's WebGL runtime (SceneViewer_WebGL) inside Pipeline Explorer, which draws the UI.
+    // From the app: {type: "load", url} → SendMessage("SceneViewer", "LoadArchiveFromUrl", url); {type: "unload"}.
+    // To the app: player-progress / player-ready / player-error, and the runtime's reports
+    // ({type: "scene-viewer", data}: downloading, loading, loaded, captured, released, error), from SceneViewerHost.jslib.
+    // A click in the view captures the mouse (pointer lock) to play; Esc gives it back.
+    "use strict";
+    let unity = null;
+    const queue = [];
+    const send = (m) => parent.postMessage(m, location.origin);
+    const canvas = document.getElementById("unity-canvas");
+
+    function call(method, arg) {
+      if (!unity) { queue.push([method, arg]); return; }
+      unity.SendMessage("SceneViewer", method, arg ?? "");
+    }
+    addEventListener("message", (e) => {
+      if (e.origin !== location.origin) return;
+      if (e.data?.type === "load") call("LoadArchiveFromUrl", new URL(e.data.url, location.href).href);
+      else if (e.data?.type === "unload") call("Unload");
+    });
+    // Keys reach the player once the view is clicked.
+    addEventListener("pointerdown", () => canvas.focus());
+    addEventListener("contextmenu", (e) => e.preventDefault());
+
+    (async () => {
+      const info = await (await fetch("/api/scene-player", { headers: { "X-Pipeline-Explorer": "1" } })).json();
+      if (!info.available) { send({ type: "player-error", message: info.message }); return; }
+      await new Promise((ok, fail) => {
+        const s = document.createElement("script");
+        s.src = info.loaderUrl;
+        s.onload = ok;
+        s.onerror = () => fail(new Error(`couldn't load ${info.loaderUrl}`));
+        document.body.append(s);
+      });
+      unity = await createUnityInstance(canvas, {
+        dataUrl: info.dataUrl,
+        frameworkUrl: info.frameworkUrl,
+        codeUrl: info.codeUrl,
+        streamingAssetsUrl: info.streamingAssetsUrl,
+        companyName: "DefaultCompany",
+        productName: "Scene Viewer",
+        productVersion: "1.0",
+        showBanner: (text, type) => console[type === "error" ? "error" : "warn"](text),
+      }, (p) => send({ type: "player-progress", progress: p }));
+      send({ type: "player-ready" });
+      queue.splice(0).forEach(([m, a]) => call(m, a));
+    })().catch((e) => send({ type: "player-error", message: `The scene viewer didn't start: ${e.message}` }));
+  </script>
+</body>
+</html>
