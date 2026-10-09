@@ -1041,10 +1041,16 @@ function fileTree(ul, opts = {}) {
   function node(path, isFolder) {
     const name = fileName(path);
     const isMeta = name.endsWith(".meta");
-    const item = h("button", { class: "item" + (isMeta ? " meta" : "") + (!isFolder && opts.dimFile?.(path) ? " dim" : ""), type: "button", title: path },
-      h("span", { class: "tw" }, isFolder ? "▸" : ""), name);
+    // Draggable rows aren't <button>s: browsers don't start a drag from a button (Firefox never does).
+    const draggable = !isFolder && !!opts.draggable?.(path);
+    const cls = "item" + (isMeta ? " meta" : "") + (!isFolder && opts.dimFile?.(path) ? " dim" : "");
+    const item = draggable
+      ? h("div", { class: cls, role: "button", tabindex: "0", title: path,
+          onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); item.click(); } } },
+        h("span", { class: "tw" }, ""), name)
+      : h("button", { class: cls, type: "button", title: path }, h("span", { class: "tw" }, isFolder ? "▸" : ""), name);
     const li = h("li", { "data-path": path, "data-folder": isFolder ? "1" : null }, item);
-    if (!isFolder && opts.draggable?.(path)) {
+    if (draggable) {
       item.draggable = true;
       item.addEventListener("dragstart", (e) => {
         e.dataTransfer.setData("application/x-pipeline-asset", JSON.stringify({ path }));
