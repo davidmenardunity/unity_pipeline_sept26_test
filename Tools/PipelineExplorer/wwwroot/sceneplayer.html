@@ -27,10 +27,37 @@
       if (!unity) { queue.push([method, arg]); return; }
       unity.SendMessage("SceneViewer", method, arg ?? "");
     }
+    // The archive comes from the app's /api, which answers only requests carrying its header: download it
+    // here (with progress), and give the player a blob URL to read it from.
+    let loading = 0;
+    async function load(url) {
+      const seq = ++loading;
+      const report = (data) => send({ type: "scene-viewer", data });
+      try {
+        const res = await fetch(new URL(url, location.href), { headers: { "X-Pipeline-Explorer": "1" } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}${res.statusText ? " " + res.statusText : ""}`);
+        const total = Number(res.headers.get("Content-Length")) || 0;
+        const reader = res.body.getReader();
+        const chunks = [];
+        let got = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          got += value.length;
+          if (seq !== loading) return;
+          report({ state: "downloading", progress: total ? got / total : -1, detail: `${(got / 1048576).toFixed(1)} MB` });
+        }
+        if (seq !== loading) return;
+        call("LoadArchiveFromUrl", URL.createObjectURL(new Blob(chunks)));
+      } catch (e) {
+        if (seq === loading) report({ state: "error", detail: `couldn't download the scene archive: ${e.message}` });
+      }
+    }
     addEventListener("message", (e) => {
       if (e.origin !== location.origin) return;
-      if (e.data?.type === "load") call("LoadArchiveFromUrl", new URL(e.data.url, location.href).href);
-      else if (e.data?.type === "unload") call("Unload");
+      if (e.data?.type === "load") load(e.data.url);
+      else if (e.data?.type === "unload") { loading++; call("Unload"); }
     });
     // Keys reach the player once the view is clicked.
     addEventListener("pointerdown", () => canvas.focus());

@@ -3272,6 +3272,55 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 4496981557690692, guid: 1461688c2734a404e9bac7e9d1fb40ea, type: 3}
   m_PrefabInstance: {fileID: 401787838}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &406264838
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 406264840}
+  - component: {fileID: 406264839}
+  m_Layer: 0
+  m_Name: Squirrels
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &406264839
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 406264838}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c7a9eaedeeb903e4b9f223e1ad2a3deb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.Pipeline.Gameplay::Unity.Pipeline.Gameplay.SquirrelSpawner
+  m_Prefab: {fileID: 3058058884975158598, guid: ddaf5e39d17d27e4081dce42ec117410, type: 3}
+  m_Count: 120
+  m_Radius: 45
+  m_MinScale: 0.9
+  m_MaxScale: 1.25
+--- !u!4 &406264840
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 406264838}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -31.178665, y: 0.05, z: 54.275482}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!4 &415255233 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4612201341456972, guid: 0fcab555f304cd84d8d77e9af3b7e843, type: 3}
@@ -15683,3 +15732,4 @@ SceneRoots:
   - {fileID: 1996679412}
   - {fileID: 774866964}
   - {fileID: 694315469}
+  - {fileID: 406264840}

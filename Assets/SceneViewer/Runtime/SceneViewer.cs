@@ -83,6 +83,9 @@ namespace Unity.Pipeline.SceneViewer
             using (var request = UnityWebRequest.Get(url))
             {
                 request.downloadHandler = new DownloadHandlerFile(item.Path) { removeFileOnAbort = true };
+                // Pipeline Explorer's /api answers only requests carrying its header (the page usually
+                // downloads the archive itself and passes a blob URL; this covers a direct URL).
+                if (url.Contains("/api/")) request.SetRequestHeader("X-Pipeline-Explorer", "1");
                 var op = request.SendWebRequest();
                 while (!op.isDone)
                 {
