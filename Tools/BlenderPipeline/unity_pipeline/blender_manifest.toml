@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "unity_pipeline"
-version = "0.2.0"
+version = "0.2.1"
 name = "Unity Pipeline"
 tagline = "Open Unity project assets from Pipeline and push edits back"
 maintainer = "David Menard"

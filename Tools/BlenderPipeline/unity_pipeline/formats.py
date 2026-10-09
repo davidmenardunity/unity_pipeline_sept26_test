@@ -5,6 +5,8 @@ Unity and pushed back unchanged comes out with the same orientation and scale.
 """
 
 import os
+import re
+from contextlib import contextmanager
 
 import bpy
 
@@ -53,8 +55,42 @@ def open_blend(filepath, name):
     return scene
 
 
+@contextmanager
+def unsuffixed_material_names(scene):
+    """Blender names a material "Tree_6A_D.004" when the file already has a "Tree_6A_D" (an asset opened
+    twice). Unity maps the model's materials by name, so the suffix would make it import a new, blank
+    material: for the export, give the scene's materials their names back, then restore them."""
+    used = {slot.material for o in scene.objects for slot in getattr(o, "material_slots", []) if slot.material}
+    renamed = []
+    try:
+        for mat in sorted(used, key=lambda m: m.name):
+            base = re.sub(r"\.\d{3}$", "", mat.name)
+            if base == mat.name:
+                continue
+            other = bpy.data.materials.get(base)
+            if other is not None and other in used:
+                continue   # two different materials of that name in this scene: leave them apart
+            if other is not None:
+                renamed.append((other, other.name))
+                other.name = base + ".pipeline-export"
+            renamed.append((mat, mat.name))
+            mat.name = base
+        yield
+    finally:
+        for item, name in reversed(renamed):
+            item.name = name
+
+
 def export_scene(scene, filepath, ext):
     """Write everything in `scene` (the context's scene) to `filepath` in the asset's own format."""
+    if ext in (".fbx", ".glb"):
+        with unsuffixed_material_names(scene):
+            _export(scene, filepath, ext)
+    else:
+        _export(scene, filepath, ext)
+
+
+def _export(scene, filepath, ext):
     if ext == ".blend":
         bpy.data.libraries.write(filepath, {scene}, fake_user=True)
     elif ext == ".fbx":
