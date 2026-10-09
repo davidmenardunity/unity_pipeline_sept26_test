@@ -80,7 +80,9 @@ class Viewer {
         } else App.emit("annotations", { viewer: v, ...d });
       }
       else if (m.type === "scene-viewer") {
-        v.scene = { ...(v.scene ?? {}), ...m.data, at: Date.now() };
+        // JsonUtility sends every field: empty ones ("", -1, 0 objects) keep what an earlier report said.
+        const given = Object.fromEntries(Object.entries(m.data).filter(([k, x]) => x !== "" && x !== null && x !== -1 && !(k === "objects" && x === 0)));
+        v.scene = { ...(v.scene ?? {}), ...given, at: Date.now() };
         if (["captured", "released", "walking", "flying"].includes(m.data.state)) {
           v.scene.state = v.scene.loadedState ?? "loaded";
           if (m.data.state === "captured" || m.data.state === "released") v.scene.captured = m.data.state === "captured";

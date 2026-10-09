@@ -38,6 +38,19 @@ namespace Unity.Pipeline.SceneViewer
             public bool HasScene;
             public ScenePlayer Player;
             public Camera DisabledFallback;
+            public bool OwnPlayer;
+        }
+
+        bool m_Captured;
+
+        // The scene's own player captures the mouse itself: tell the page when it does.
+        void Update()
+        {
+            if (m_Current == null || !m_Current.OwnPlayer) return;
+            var captured = Cursor.lockState == CursorLockMode.Locked;
+            if (captured == m_Captured) return;
+            m_Captured = captured;
+            Send(new Report { state = captured ? "captured" : "released" });
         }
 
         Loaded m_Current;
@@ -144,7 +157,10 @@ namespace Unity.Pipeline.SceneViewer
                 Frame(camera, scene);
             }
             foreach (var other in cameras.Where(c => c != camera)) other.enabled = false;
-            item.Player = ScenePlayer.Attach(camera, Report2Page);
+            // A scene with its own player (a CharacterController: a first-person controller…) plays as it is;
+            // others get ours.
+            item.OwnPlayer = scene.GetRootGameObjects().Any(g => g.GetComponentInChildren<CharacterController>() != null);
+            if (!item.OwnPlayer) item.Player = ScenePlayer.Attach(camera, Report2Page);
 
             Send(new Report
             {
@@ -152,6 +168,7 @@ namespace Unity.Pipeline.SceneViewer
                 scene = scene.name,
                 objects = scene.GetRootGameObjects().Sum(g => g.GetComponentsInChildren<Transform>(true).Length),
                 camera = cameras.Count > 0 ? camera.name : null,
+                player = item.OwnPlayer ? "scene" : "viewer",
             });
             m_Routine = null;
         }
@@ -246,6 +263,7 @@ namespace Unity.Pipeline.SceneViewer
             public string scene;
             public int objects;
             public string camera;
+            public string player;   // "scene": the scene's own player; "viewer": ours (F flies)
         }
 
 #if UNITY_WEBGL && !UNITY_EDITOR

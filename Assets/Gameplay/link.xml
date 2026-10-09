@@ -1,0 +1,5 @@
+<!-- Gameplay components arrive inside scene archives, not in the player's own scenes: keep them in every
+     player build (the Scene Viewer's especially), or the stripper removes them as unused. -->
+<linker>
+  <assembly fullname="Unity.Pipeline.Gameplay" preserve="all"/>
+</linker>

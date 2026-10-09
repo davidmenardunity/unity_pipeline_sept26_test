@@ -422,7 +422,9 @@
         info.push(h("div", { class: "callout bad" }, h("span", { class: "dot bad" }), h("div", {}, h("p", {}, st.detail),
           h("div", { class: "actions" }, h("button", { class: "btn small", onclick: () => { v.shown = null; showArchiveIfBuilt(); } }, "Load again"), h("button", { class: "btn small", onclick: () => preview({ rebuild: true }) }, "Rebuild the archive")))));
       } else if (st.state === "loaded" && !st.captured) {
-        over = h("div", {}, h("b", {}, "Click the view to play. "), `Mouse looks, WASD moves, Shift runs, Space jumps, F ${st.mode === "flying" ? "walks" : "flies"}. Esc gives the mouse back.`);
+        over = h("div", {}, h("b", {}, "Click the view to play. "), st.player === "scene"
+          ? "The scene's own player: mouse looks, WASD walks, Shift runs, Space jumps. Esc gives the mouse back."
+          : `Mouse looks, WASD moves, Shift runs, Space jumps, F ${st.mode === "flying" ? "walks" : "flies"}. Esc gives the mouse back.`);
         progressBox = true;
       }
     }
