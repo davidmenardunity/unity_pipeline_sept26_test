@@ -1,0 +1,12 @@
+* [Unity Pipeline and Project Service](index.md)
+* [Key concepts](key-concepts.md)
+* [Get started with the Pipeline API](get-started.md)
+* Use cases
+    * [Explore a project and inspect assets](use-case-explore-a-project.md)
+    * [Preview assets in a runtime player](use-case-preview-assets.md)
+    * [Edit a project](use-case-edit-a-project.md)
+    * [Compare an asset across branches](use-case-compare-branches.md)
+    * [Build a level editor](use-case-level-editor.md)
+    * [Play whole scenes from content archives](use-case-scene-archives.md)
+* [Publish workbench changes to git](publish-to-git.md)
+* [Troubleshooting](troubleshooting.md)
