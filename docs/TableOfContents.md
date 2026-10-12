@@ -1,5 +1,6 @@
 * [Unity Pipeline and Project Service](index.md)
 * [Key concepts](key-concepts.md)
+* [Architecture](architecture.md)
 * [Get started with the Pipeline API](get-started.md)
 * Use cases
     * [Explore a project and inspect assets](use-case-explore-a-project.md)

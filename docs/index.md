@@ -27,6 +27,8 @@ Publish the workbench to git ─────────────────
 
 Every read is pinned to a revision, so what you read never changes under you. Every write creates a new revision, which Project Service validates before it can be read.
 
+For diagrams of the components and request flows, refer to [Architecture](architecture.md).
+
 ## Use cases
 
 The use cases in this documentation are working examples, each built against the Pipeline API:
@@ -48,5 +50,6 @@ To set up access and a workbench first, refer to [Get started with the Pipeline 
 ## Additional resources
 
 * [Get started with the Pipeline API](get-started.md)
+* [Architecture](architecture.md)
 * [Publish workbench changes to git](publish-to-git.md)
 * [Troubleshooting](troubleshooting.md)
