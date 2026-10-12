@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pipeline API Field Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=Public+Sans:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: single reading column (~70ch) with a sticky section index on wide screens; tables and code scroll inside their own boxes. */
+:root {
+  --bg: #f7f8fa; --surface: #ffffff; --fg: #1c2330; --muted: #5a6577; --line: #dde2ea;
+  --accent: #2f5fa8; --slow: #b4560f; --slow-bg: #fbeee2; --ok: #2c7a4b; --ok-bg: #e5f3ea; --bad: #a8323a; --bad-bg: #f8e6e7;
+  --code-bg: #eef1f6;
+  --display: "Source Serif 4", Georgia, serif;
+  --body: "Public Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12161d; --surface: #191f28; --fg: #e3e8ef; --muted: #98a3b4; --line: #2a3340;
+  --accent: #7ea6e6; --slow: #f0a868; --slow-bg: #33241a; --ok: #6fcf97; --ok-bg: #16291f; --bad: #f08a90; --bad-bg: #331a1d; --code-bg: #212833; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #12161d; --surface: #191f28; --fg: #e3e8ef; --muted: #98a3b4; --line: #2a3340;
+  --accent: #7ea6e6; --slow: #f0a868; --slow-bg: #33241a; --ok: #6fcf97; --ok-bg: #16291f; --bad: #f08a90; --bad-bg: #331a1d; --code-bg: #212833; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.62 var(--body); padding-inline: 16px; padding-block: 0 72px; }
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 48px; }
+aside { position: sticky; top: env(safe-area-inset-top, 0px); align-self: start; padding-top: 48px; font-size: 13.5px; }
+aside a { display: block; color: var(--muted); text-decoration: none; padding: 4px 0; }
+aside a:hover, aside a:focus-visible { color: var(--accent); }
+main { min-width: 0; max-width: 72ch; padding-top: 40px; }
+header .eyebrow { font: 600 12px/1 var(--body); letter-spacing: .09em; text-transform: uppercase; color: var(--accent); }
+h1 { font: 700 clamp(30px, 4.6vw, 42px)/1.12 var(--display); margin: 12px 0 14px; text-wrap: balance; }
+h2 { font: 700 26px/1.2 var(--display); margin: 56px 0 14px; padding-top: 18px; border-top: 1px solid var(--line); text-wrap: balance; }
+h3 { font: 700 17px/1.35 var(--body); margin: 30px 0 8px; text-wrap: balance; }
+p, li { max-width: 68ch; }
+.lede { font-size: 18px; color: var(--muted); }
+.meta { font-size: 13.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 18px; }
+a { color: var(--accent); }
+code { font: 0.86em var(--mono); background: var(--code-bg); padding: .08em .35em; border-radius: 4px; overflow-wrap: anywhere; }
+ul, ol { padding-left: 22px; } li { margin: 5px 0; }
+
+.asks { display: grid; gap: 10px; counter-reset: ask; padding: 0; list-style: none; }
+.asks li { counter-increment: ask; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px 12px 52px; position: relative; max-width: none; }
+.asks li::before { content: counter(ask); position: absolute; left: 16px; top: 12px; font: 700 18px/1.4 var(--display); color: var(--accent); }
+.asks b { display: block; }
+
+.tbl { overflow-x: auto; margin: 16px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; min-width: 560px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pill { display: inline-block; font: 600 11.5px/1 var(--body); letter-spacing: .04em; padding: 4px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.slow { color: var(--slow); background: var(--slow-bg); }
+.pill.ok { color: var(--ok); background: var(--ok-bg); }
+.pill.bad { color: var(--bad); background: var(--bad-bg); }
+
+figure { margin: 20px 0; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 18px 18px 14px; }
+figcaption { font-size: 13.5px; color: var(--muted); margin-top: 10px; }
+.bars { display: grid; grid-template-columns: 78px minmax(0, 1fr) 70px; gap: 7px 12px; align-items: center; font-size: 13.5px; }
+.bars .lab { color: var(--muted); font-family: var(--mono); font-size: 12.5px; }
+.bars .track { height: 18px; background: var(--code-bg); border-radius: 3px; overflow: hidden; }
+.bars .fill { height: 100%; background: var(--accent); border-radius: 3px; }
+.bars .fill.s { background: var(--slow); }
+.bars .n { font-variant-numeric: tabular-nums; text-align: right; }
+
+.flow { display: grid; gap: 12px; margin: 16px 0; }
+.flow > div { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+.flow h4 { margin: 0 0 6px; font-size: 15px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.flow .calls { font: 600 12.5px var(--mono); color: var(--slow); white-space: nowrap; }
+.flow pre { margin: 6px 0; font: 12.5px/1.55 var(--mono); background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+.flow .better { font-size: 14.5px; color: var(--fg); }
+.flow .better b { color: var(--ok); }
+
+.finding { border-left: 3px solid var(--line); padding: 2px 0 2px 16px; margin: 22px 0; }
+.finding.hi { border-color: var(--bad); }
+.finding.md { border-color: var(--slow); }
+.finding h3 { margin-top: 0; }
+.finding p { margin: 6px 0; }
+.finding .fix { font-size: 14.5px; }
+.finding .fix::before { content: "Suggestion  "; font-weight: 700; color: var(--accent); letter-spacing: .02em; }
+
+.note { font-size: 14px; color: var(--muted); background: var(--surface); border: 1px dashed var(--line); border-radius: 8px; padding: 12px 16px; }
+@media (max-width: 860px) { .wrap { grid-template-columns: 1fr; gap: 0; } aside { display: none; } main { padding-top: 28px; } }
+@media (max-width: 480px) { .bars { grid-template-columns: 64px minmax(0, 1fr) 56px; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<aside aria-label="Sections">
+  <a href="#summary">Summary</a>
+  <a href="#waits">Wait times</a>
+  <a href="#steps">Fewer steps</a>
+  <a href="#behavior">Surprises and errors</a>
+  <a href="#auth">Auth and adjacent services</a>
+  <a href="#samples">Scene Preview samples</a>
+  <a href="#method">Method and caveats</a>
+</aside>
+
+<main>
+<header>
+  <div class="eyebrow">Field report · Pipeline API &amp; Project Service · staging</div>
+  <h1>What a week of building on the Workbench API taught us</h1>
+  <p class="lede">From October 5 to 12, 2026, one Unity 6000.3 URP project was built against the staging Pipeline API: an asset explorer, branch comparison, a browser level editor, Blender round-trips, a whole-scene WebGL viewer, and publishing back to git. This report covers where the APIs were slow, where they took too many calls, where they surprised us, and how the Scene Preview samples held up.</p>
+  <div class="meta"><span>Project: <code>pipeline_sept26_test</code> · Unity 6000.3.23f1 · URP</span><span>Data: 512 timed archive requests, about 27k workbench polls, and the session transcript</span></div>
+</header>
+
+<h2 id="summary">Summary</h2>
+<p>Writes are fast: a commit lands in about 1 s and validates in about 12 s. Reads at a validated revision are fast too. The time goes to <strong>imports</strong> (one in six archive requests took longer than a minute), to <strong>waiting without signals</strong> (everything is polled), and to <strong>workarounds for behavior the API doesn't announce</strong>: a sync that doesn't sync, a branch name that reads back as <code>main</code>, a publish that fails with raw git stderr. The five changes that would help most:</p>
+<ol class="asks">
+  <li><b>Make imports asynchronous.</b> Return <code>202</code> with a job or <code>Location</code> and progress states (queued, starting Editor, compiling shaders). Don't hold a synchronous POST open for minutes.</li>
+  <li><b>Push state changes.</b> Webhooks or SSE for "revision validated", "import done" and "publish done", plus ETags on <code>head</code>, would replace tens of thousands of polls.</li>
+  <li><b>Make sync pull new commits, and expose the git branch.</b> <code>sync</code> should fast-forward to the branch head, and <code>GET</code> should return <code>gitBranch</code>. Today every new commit means a new workbench.</li>
+  <li><b>Collapse the common workflows into one call each:</b> a single multipart commit, and an import-and-download by path.</li>
+  <li><b>Version the API and return specific errors.</b> The shape changed four ways in three days. Return clear 4xx codes (<code>no_vcs_credentials</code>, <code>project_service_stopped</code>, <code>importer_not_in_revision</code>), never a generic 502 or gateway 404.</li>
+</ol>
+
+<h2 id="waits">Wait times</h2>
+<p>Durations are what a user waited end to end through the explorer's server, measured from ASP.NET request logs. Single API calls are noted where they could be isolated.</p>
+
+<div class="tbl"><table>
+<thead><tr><th>Operation</th><th>Typical</th><th>Worst seen</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr><td>Import → content archive (<code>POST …/imports</code> + download)</td><td class="num">&lt; 2 s cached</td><td class="num">204.6 s</td><td><span class="pill slow">Slow</span></td></tr>
+<tr><td>Project Service cold start (<code>projectservice/start</code> → ready)</td><td class="num">1–2 min*</td><td class="num">—</td><td><span class="pill slow">Slow</span></td></tr>
+<tr><td>Workbench create → first validated revision</td><td class="num">2–3 min*</td><td class="num">≤ 3.4 min</td><td><span class="pill slow">Slow</span></td></tr>
+<tr><td>Whole-scene import, first time (shader compilation)</td><td class="num">minutes</td><td class="num">past the 120 s client timeout</td><td><span class="pill slow">Slow</span></td></tr>
+<tr><td><code>POST /workbenches</code> (only enqueues work)</td><td class="num">3.3 s</td><td class="num">6.1 s</td><td><span class="pill slow">Slower than needed</span></td></tr>
+<tr><td>Commit: blob + transaction + assets + PATCH</td><td class="num">1.0 s</td><td class="num">2.4 s</td><td><span class="pill ok">Fast</span></td></tr>
+<tr><td>Small commit → validated revision</td><td class="num">≈ 12 s</td><td class="num">—</td><td><span class="pill ok">Fast</span></td></tr>
+<tr><td>Publish to git</td><td class="num">1.4–8.1 s</td><td class="num">8.1 s</td><td><span class="pill ok">Fast</span></td></tr>
+<tr><td>Sync <code>PATCH</code></td><td class="num">0.5–1.8 s</td><td class="num">—</td><td><span class="pill bad">Fast, but does nothing</span></td></tr>
+</tbody></table></div>
+<p class="note">* Estimates from in-app hints and timestamps, not measured directly. A cold preview render was also estimated at about 2 minutes. Previews were rarely used, so there is no duration data for them.</p>
+
+<figure>
+  <div class="bars" role="img" aria-label="Distribution of 512 archive request durations">
+    <span class="lab">&lt; 2 s</span><div class="track"><div class="fill" style="width:100%"></div></div><span class="n">319 · 62%</span>
+    <span class="lab">2–10 s</span><div class="track"><div class="fill" style="width:33.9%"></div></div><span class="n">108 · 21%</span>
+    <span class="lab">10–30 s</span><div class="track"><div class="fill" style="width:11.6%"></div></div><span class="n">37 · 7%</span>
+    <span class="lab">30–60 s</span><div class="track"><div class="fill s" style="width:0.6%"></div></div><span class="n">2 · 0.4%</span>
+    <span class="lab">60–120 s</span><div class="track"><div class="fill s" style="width:4.7%"></div></div><span class="n">15 · 3%</span>
+    <span class="lab">≥ 120 s</span><div class="track"><div class="fill s" style="width:9.7%"></div></div><span class="n">31 · 6%</span>
+  </div>
+  <figcaption>How long 512 successful archive requests took, end to end (bar length is relative to the largest bucket). Requests over a minute had a median of about 130 s. In addition, 19 requests were abandoned by the browser after up to 94.5 s, and a raw <code>POST …/imports</code> hit the 120 s client timeout.</figcaption>
+</figure>
+
+<h3>Where the time went</h3>
+<ul>
+  <li><strong>Imports block a connection.</strong> The first import at a revision starts an Editor and imports the asset. A scene import also compiles every shader variant its materials need. Every client has to wrap the POST in a resend loop and guess at timeouts.</li>
+  <li><strong>Cold starts aren't flagged.</strong> After an overnight idle, workbench reads returned 519 × <code>503 status_authority_unavailable</code> instead of saying the service was stopped. A status of <code>starting</code> with <code>jobStatus: Succeeded</code> actually meant stopped.</li>
+  <li><strong>Creating a workbench takes 3 s and gives no handle to wait on.</strong> The client then polls <code>head</code> for minutes.</li>
+  <li><strong>Polling volume.</strong> About 27,000 workbench polls over five days, each one two upstream calls (<code>GET workbench</code> + <code>GET head</code>). Some of that was the explorer's own fault: 3,846 polls hit workbenches that had been deleted. Most of it, though, exists because nothing tells a client that a revision is ready.</li>
+</ul>
+
+<h2 id="steps">Fewer steps</h2>
+<p>Counted from working client code. Each flow's suggested replacement is underneath it.</p>
+<div class="flow">
+  <div>
+    <h4>Edit one file and save it as a revision <span class="calls">5+ calls, then polls</span></h4>
+<pre>md5(file)                          (client)
+PUT  …/blobs/{md5}                 → uploadHandle
+GET  …/files tree                  (per missing folder level)
+POST …/transactions {"branchName":"main"}
+POST …/transactions/{tx}/assets    [{path, uploadHandle}]
+PATCH …/transactions/{tx}          {"status":"committed","message":…}
+GET  …/head  … until validatedRevision moves</pre>
+    <p class="better"><b>Better:</b> <code>POST …/commits</code> as multipart (files plus message) that returns the new revision and an event when it validates. Abandoned transactions also have to be <code>DELETE</code>d by hand today.</p>
+  </div>
+  <div>
+    <h4>Asset path → content archive <span class="calls">3–6 calls</span></h4>
+<pre>POST …/asset-guid {"paths":[…]}    (no leading "/", unlike file-tree paths)
+GET  …/environments                (first time: profiles + create environment)
+POST …/environments/{env}/revisions/{rev}/imports {"importAddresses":["T:{guid}+{Importer}"]}
+     … resend until a manifest comes back
+GET  …/imports/{address}?artifactName=.ca</pre>
+    <p class="better"><b>Better:</b> accept paths in import addresses, add <code>?download=</code> to return the named artifact when the import finishes, and pick or create the environment from a profile name.</p>
+  </div>
+  <div>
+    <h4>Start working on a branch <span class="calls">≈ 7 calls, then polls</span></h4>
+<pre>GET  projectservice/status → POST projectservice/start → poll
+POST …/workbenches {type, repo, branch, name, vcsConnectionId}
+GET  …/head  … until validated   (+ GET workbench for validation errors)
+GET  …/profiles → POST …/environments</pre>
+    <p class="better"><b>Better:</b> start Project Service automatically on first use, return <code>202</code> plus <code>Location</code> from create, and include validation errors in <code>head</code>.</p>
+  </div>
+  <div>
+    <h4>Compare two branches <span class="calls">≈ 3 calls per side, plus git</span></h4>
+<pre>git ls-remote                      (the API can't say which branch a workbench is on)
+GET …/head, GET …/files, GET …/assets/{guid}   per side</pre>
+    <p class="better"><b>Better:</b> expose <code>gitBranch</code> and <code>upstreamRevision</code> on list and get, and add a revision diff endpoint.</p>
+  </div>
+</div>
+<p>Also: an asset detail view took 4 calls (guid, asset, meta, file). Path segments need <code>/</code> encoded as <code>%2F</code>. The main artifact needs <code>?artifactName=.</code>, because an empty name returns the manifest again.</p>
+
+<h2 id="behavior">Surprises and errors</h2>
+<p>These are ordered by how much time each one cost.</p>
+
+<div class="finding hi">
+  <h3>Sync reports success but doesn't pull new commits</h3>
+  <p><code>PATCH …/workbenches/{wb} {"type":"sync"}</code> answers <code>{"status":"validated"}</code> in about 1 s, but <code>upstreamRevision</code> doesn't change. One workbench stayed on <code>6adde27</code> while <code>main</code> was at <code>844f8b2</code>. So every pushed commit meant a new workbench, a new cold validation and new environments.</p>
+  <p class="fix">Make sync fast-forward to the branch head and return the new revision, or reject it with an error that says what it does.</p>
+</div>
+
+<div class="finding hi">
+  <h3>The API changed shape four ways in three days, unannounced</h3>
+  <p>Between October 5 and 7:</p>
+  <ul>
+    <li><code>/branches/{b}/projectservice/*</code> moved to the project level.</li>
+    <li><code>readiness</code> became <code>head {settledRevision}</code>, then <code>{validatedRevision, validating}</code>.</li>
+    <li>Fields were renamed: <code>keys</code> to <code>paths</code>, <code>addresses</code> to <code>importAddresses</code>, and <code>isFolder</code> to <code>type:"folder"</code>.</li>
+    <li><code>/batch</code> gave way to transactions, environments moved to project level, and previews went from POST plus job to a GET that returns 202.</li>
+    <li>The workbench list changed from <code>{items}</code> to <code>{workbenches}</code> and lost <code>branchName</code>, <code>createdAt</code> and <code>owner</code>.</li>
+  </ul>
+  <p>Removed routes returned a generic gateway 404 (code 54), which looks like "resource not found".</p>
+  <p class="fix">Use versioned routes, a changelog, <code>Deprecation</code>/<code>Sunset</code> headers, and a distinct "route not served" error.</p>
+</div>
+
+<div class="finding hi">
+  <h3>A workbench forgets its git branch</h3>
+  <p>The create response says <code>"branchName":"demo-123"</code>, but <code>GET</code> on the same workbench says <code>"main"</code> (its internal branch). Two workbenches lost their branch this way. A create request that the client gave up on (499) still created a workbench, and its branch could never be recovered.</p>
+  <p class="fix">Return <code>gitBranch</code> on get and list, and make create idempotent with a client-supplied key.</p>
+</div>
+
+<div class="finding md">
+  <h3>Publishing without a VCS connection fails late, with raw git output</h3>
+  <p>The publish returns a <code>502 backend_error</code> containing <code>could not read Username for 'https://github.com'</code> after about 4 s. A connection can't be added to an existing workbench, so the work had to be redone on a new one.</p>
+  <p class="fix">Reject the publish up front with <code>4xx no_vcs_credentials</code>, and let a connection be attached later. Document that <code>vcsConnectionId</code> is a Build Automation connection ID.</p>
+</div>
+
+<div class="finding md">
+  <h3>Published branches start from an old commit</h3>
+  <p>Publishes go to <code>pr-{commit}</code> branches based on the commit the workbench was created from. One workbench produced three stacked <code>pr-*</code> branches in about 40 minutes. Merging them conflicted in a scene and brought back seven prefabs that had been deleted on <code>main</code>. One early publish went straight to <code>main</code> (<code>git push origin pr-X pr-X:&lt;branch&gt;</code>).</p>
+  <p class="fix">Reuse one branch per workbench, offer a rebase onto the current branch head, and document when a publish is drafted (<code>409 publish_drafted</code>) and when it pushes directly.</p>
+</div>
+
+<div class="finding md">
+  <h3>"Type not found" doesn't say which commit it compiled</h3>
+  <p><code>import_failed: Type not found for scriptedImporterTypeName='…PreviewSceneImporter'</code>. The importer had been pushed, but the workbench predated it, and the sync above couldn't bring it in.</p>
+  <p class="fix">Include the compiled revision in the error, and suggest creating a workbench from a commit that includes the importer.</p>
+</div>
+
+<div class="finding">
+  <h3>Smaller inconsistencies</h3>
+  <ul>
+    <li>File-tree paths start with <code>/</code>, but <code>asset-guid</code> paths must not.</li>
+    <li>Transactions require <code>branchName:"main"</code>. The git branch name fails.</li>
+    <li>Token expiry seems to come back as 403, not 401 (118 × 403 near expiry; not confirmed). Off VPN, calls return an HTML 403 page.</li>
+    <li>A workbench can hold only one open transaction, and an abandoned one blocks new ones until it times out.</li>
+  </ul>
+</div>
+
+<h2 id="auth">Auth and adjacent services</h2>
+<ul>
+  <li><strong>Tokens.</strong> The Pipeline API takes a dashboard JWT copied from browser devtools, valid about 72 hours. There is no service-account or PAT flow for tools.</li>
+  <li><strong>Collaboration needs a different token.</strong> It rejects the pipeline JWT. A Genesis token has to be exchanged first at <code>/api/auth/v1/genesis-token-exchange/unity</code>, and without that the error is <code>Jwt is not in the form…</code>. The Genesis token stopped working within about an hour.</li>
+  <li><strong>Comment target format.</strong> The SDK's <code>AssetReference</code> builds <code>assets/projects/…</code>, which saves but doesn't show in the dashboard. <code>unity/project/…</code> passes search but fails on create (41503). Only <code>unity/projects/{p}/assets/{guid}</code> works everywhere. Thumbnail upload needs an undocumented <code>x-ms-blob-type: BlockBlob</code> header.</li>
+  <li><strong>VCS connections.</strong> Build Automation v3 has no create operation. The internal v2 create returned <code>422 Repository URL is not reachable: Git ls-remote failure</code> for GitHub over HTTPS, even for a public repository with no credentials. Only an OAuth connection made in the dashboard worked.</li>
+</ul>
+<p class="fix" style="font-size:15px"><strong style="color:var(--accent)">Suggestion</strong> One token for every Unity Cloud API a pipeline tool calls, a documented service-account flow, VCS connection creation in the Pipeline API, and one canonical asset-reference format shared by the SDK and the service.</p>
+
+<h2 id="samples">Scene Preview samples</h2>
+<p>The samples ship the asset-level path: a scripted importer turns one asset into one content archive (<code>.ca</code>), and a player downloads, mounts and shows it on an orbit camera. That core is well designed:</p>
+<ul>
+  <li>The loader uses two slots, so a new preview swaps in cleanly.</li>
+  <li>It never reuses a mount prefix, and it tears down in the right order.</li>
+  <li><code>GlobalTableDependency</code> handles built-in resources.</li>
+  <li>The <code>AGENTS.md</code> list of rules was useful.</li>
+</ul>
+<p>Getting it to run against staging, and on WebGL, took a lot of work.</p>
+
+<h3>What had to change in the samples' own files</h3>
+<div class="tbl"><table>
+<thead><tr><th>Area</th><th>Problem</th><th>Change</th></tr></thead>
+<tbody>
+<tr><td>Pipeline client</td><td>Shipped routes that staging no longer serves</td><td>12 files rewritten (+518/−452): pick a workbench and wait for it, create a per-platform environment, retry <code>409 revision_not_validated</code> (40 × 15 s)</td></tr>
+<tr><td>Input</td><td>The legacy Input API threw every frame in an Input-System-only project (the URP template default)</td><td>Orbit camera ported to the Input System</td></tr>
+<tr><td>Sample art</td><td>Only Git LFS pointers were in the download: 14 broken prefabs and a pink island</td><td>Instances removed and the material replaced</td></tr>
+<tr><td>WebGL</td><td>"WebGLPlayer has no pipeline environment platform". The development build fails to link (unitytls). <code>link.xml</code> kept TLS/Curl modules</td><td>Added a WebGL profile, the URL archive loader, and module exclusions</td></tr>
+<tr><td>Importer</td><td>On URP 17.5, setting up shader stripping saves assets during import, which Unity refuses. It also relies on reflection into internal APIs</td><td>Catches the error and builds without stripping</td></tr>
+<tr><td>Embedding</td><td>No headless or embedded mode. Run In Background was off</td><td>Embedded mode, host-page bridge, file drop</td></tr>
+<tr><td>Loader / camera</td><td>No events or hooks for a host</td><td>Added <code>Shown</code>, <code>Current</code>, public bounds, <code>Hold</code> and <code>LookFrom</code></td></tr>
+</tbody></table></div>
+
+<h3>What had to be built on top</h3>
+<ul>
+  <li><strong>Whole-scene archives.</strong> Scenes need the parallel API path (<code>CalculatePlayerDependenciesForScene</code>, <code>WriteSceneSerializedFile</code>, <code>LoadSceneAsync</code>), two content files, and a manifest that records dependency order. Nothing in the samples covers it.</li>
+  <li><strong>A stage around previews:</strong> sky, trilight ambient, linear fog, and props that move away from large assets.</li>
+  <li><strong>Comments</strong> stored as Collaboration annotations, including a <code>link.xml</code> for its reflection-based models.</li>
+  <li><strong>A multi-archive loader</strong> for the level editor. The level editor copies the loader's mount code instead of reusing <code>PreviewLoader</code>, because that only holds one archive at a time.</li>
+</ul>
+
+<h3>Rendering pitfalls the samples don't warn about</h3>
+<ul>
+  <li><strong>Pink materials on WebGL 2.</strong> The art uses shader model 4.5. The fix was WebGPU first with WebGL 2 as fallback, plus a new workbench, because archives are compiled for the commit's graphics APIs.</li>
+  <li><strong>Grass in flat fog color.</strong> Shaders that URP looks up at runtime come from the player, and an empty player scene strips their fog variants. The fix was custom fog stripping that keeps all three fog modes.</li>
+  <li><strong>Black-and-white scenes.</strong> Skybox ambient isn't computed for scenes loaded from archives. Trilight or flat ambient works. This is still unresolved for SampleScene.</li>
+  <li><strong>One-byte-short reads.</strong> The archive file system can return small files one byte short. Both the sample and the scene importer pad their manifests to survive it. This is a platform bug with a workaround, not a fix.</li>
+  <li><strong>Scripts can't travel in archives on IL2CPP.</strong> Gameplay code has to be in the player and kept with <code>link.xml</code>.</li>
+</ul>
+
+<h3>Iteration cost</h3>
+<p>WebGL player builds took 25 to 40 minutes, and Brotli alone took 8 to 10. The build profile's compression field turned out to be LZ4 data compression, not WebGL compression; the setting that matters is <strong>Player Settings &gt; Publishing Settings &gt; Compression Format</strong>.</p>
+
+<h3>Suggestions for the samples</h3>
+<ol>
+  <li>Ship a scene importer and scene loader next to the asset ones, with the dependency-order manifest.</li>
+  <li>Fix the short read in the archive file system, and until then make the manifest format robust to it by default.</li>
+  <li>Make <code>PreviewLoader</code> reusable: events, several archives at once, public bounds, and an "unload all".</li>
+  <li>Use the Input System, ship the art inside the package instead of in LFS, and include a host-page bridge and embedded mode.</li>
+  <li>Ship WebGL profiles: release builds, WebGPU first with WebGL 2 as fallback, compression off for local serving. Leave TLS/Curl out of the <code>link.xml</code> generator.</li>
+  <li>Default the setup to trilight ambient and custom fog stripping, or warn when a loaded scene needs variants or lighting the player stripped.</li>
+  <li>Replace reflection on internal APIs with public ones, and keep the client in step with the current routes. Test the samples against staging in CI.</li>
+</ol>
+
+<h2 id="method">Method and caveats</h2>
+<ul>
+  <li>The durations come from about 40 explorer server logs (ASP.NET "Request finished" lines). They measure the explorer's endpoints, which may wrap several API calls and resends, so they are user-facing waits rather than single-call latencies.</li>
+  <li>Scene and prefab imports couldn't be told apart in the logs. A local Editor build of one scene archive took 50 to 90 s, which gives a sense of scale.</li>
+  <li>Cold start, workbench validation and preview times marked with * are estimates from timestamps and in-app hints, not timed measurements.</li>
+  <li>Some of the polling volume came from the explorer's own polling design, not from the API.</li>
+  <li>All of this is against <strong>staging</strong> during a period of active API change. Production may behave differently.</li>
+</ul>
+</main>
+</div>
+</body>
+</html>
