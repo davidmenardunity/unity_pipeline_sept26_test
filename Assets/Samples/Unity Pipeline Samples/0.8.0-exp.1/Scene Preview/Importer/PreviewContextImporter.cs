@@ -26,7 +26,7 @@ namespace Unity.Pipeline.Samples.ScenePreview.Importer
     // specified build profile", and any ProduceArtifact call hangs forever waiting on workers that
     // keep dying.
     [InitializeOnLoad]
-    [ScriptedImporter(2, "___scenepreview_context___")]
+    [ScriptedImporter(3, "___scenepreview_context___")]
     public class PreviewContextImporter : ScriptedImporter
     {
         // The preview build profile: the one the preview player is built from. Independent of whatever
@@ -142,7 +142,7 @@ namespace Unity.Pipeline.Samples.ScenePreview.Importer
                 EditorSceneManager.CloseScene(scene, true);
             }
 
-            File.WriteAllBytes(ctx.GetOutputArtifactFilePath("gus"), SerializeGlobalUsage(globalUsage));
+            ctx.SetOutputArtifactData("gus", SerializeGlobalUsage(globalUsage));   // 6.7+: path writes are no longer kept
         }
 
         // ContentBuildInterface.GetGlobalUsageFromGraphicsSettings() reads the editor's IN-PROCESS

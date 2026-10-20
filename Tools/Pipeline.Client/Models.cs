@@ -31,14 +31,23 @@ public sealed record Workbench(
     DateTimeOffset? RetiredAt,
     IReadOnlyDictionary<string, WorkbenchBranch>? Branches,
     WorkbenchValidation? Validation,
-    bool? DefaultHeadValidated);
+    bool? DefaultHeadValidated,
+    string? ValidatedRevision = null)   // production reports it here, not on …/head
+{
+    /// <summary>The validated revision of <paramref name="branch"/> (or the workbench's own), if any.</summary>
+    public string? ValidatedRevisionOf(string? branch) =>
+        branch is not null && Branches?.TryGetValue(branch, out var b) == true && !string.IsNullOrEmpty(b.ValidatedRevision ?? b.VerifiedRevision)
+            ? b.ValidatedRevision ?? b.VerifiedRevision : ValidatedRevision;
+}
 
 /// <summary>One entry of a workbench's branches map; verifiedRevision is called validatedRevision since October 2026.</summary>
 public sealed record WorkbenchBranch(string? Head, string? TransactionId, string? VerifiedRevision, string? ValidatedRevision = null);
 
 public sealed record WorkbenchValidation(string? Status, ValidationError? Error, ValidationError? PreviousError);
 
-public sealed record ValidationError(string? Category, string? Message);
+/// <summary>Production adds cause, detail (the underlying exception) and retryNotBefore.</summary>
+public sealed record ValidationError(string? Category, string? Message, string? Cause = null, string? Detail = null,
+    DateTimeOffset? RetryNotBefore = null);
 
 /// <summary><c>readiness</c> is one of settled / settling / gone / unknown.</summary>
 public sealed record WorkbenchReadiness(string WorkbenchId, string Readiness, string? Branch, string? SettledRevision, string? Head)

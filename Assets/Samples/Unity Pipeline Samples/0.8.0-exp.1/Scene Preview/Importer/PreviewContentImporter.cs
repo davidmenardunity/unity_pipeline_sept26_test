@@ -20,7 +20,7 @@ namespace Unity.Pipeline.Samples.ScenePreview.Importer
     //
     // This is a starting point: copy it and change BuildContentArchive to produce whatever your preview
     // player needs (other object filters, extra payloads in the manifest, a different archive layout).
-    [ScriptedImporter(8, "___scenepreview_content___")]
+    [ScriptedImporter(9, "___scenepreview_content___")]
     public class PreviewContentImporter : ScriptedImporter
     {
         public const string ArchiveArtifactName = "ca";
@@ -61,7 +61,8 @@ namespace Unity.Pipeline.Samples.ScenePreview.Importer
             if (archiveBytes == null)
                 return;
 
-            File.WriteAllBytes(ctx.GetOutputArtifactFilePath(ArchiveArtifactName), archiveBytes);
+            // Unity 6.7+: a file written to the old GetOutputArtifactFilePath path is no longer kept.
+            ctx.SetOutputArtifactData(ArchiveArtifactName, archiveBytes);
             Debug.Log($"PreviewContentImporter: wrote {buildTarget} content archive ({archiveBytes.Length} bytes) for {assetPath}");
         }
 
@@ -69,45 +70,21 @@ namespace Unity.Pipeline.Samples.ScenePreview.Importer
         {
             // PreviewContextImporter is non-primary, so target it by explicit importer type — NOT the
             // profile's primary artifact (new ArtifactKey(profileGuid) would resolve the BuildProfile's
-            // own importer, not our gus). ctx.GetArtifactFilePath is a passive lookup that both
+            // own importer, not our gus). ctx.GetArtifactData is a passive lookup that both
             // registers the dependency (so this content re-runs when the gus changes, e.g. graphics-
-            // settings shader stripping) and returns "" if the artifact isn't available yet; the
+            // settings shader stripping) and returns nothing if the artifact isn't available yet; the
             // context artifact is produced upfront in the main process (see ProduceContentArtifact),
             // and a forcing ProduceArtifact call from inside a worker import cannot trigger imports.
             var artifactKey = new ArtifactKey(profileGuid, typeof(PreviewContextImporter));
             ctx.DependsOnArtifact(artifactKey);
 
-            var gusPath = ctx.GetArtifactFilePath(artifactKey, "gus");
-            if (string.IsNullOrEmpty(gusPath))
-                return default;
-
-            var bytes = ReadVfsFile(gusPath);
+            var bytes = ctx.GetArtifactData(artifactKey, "gus");
             if (bytes == null || bytes.Length != sizeof(BuildUsageTagGlobal))
                 return default;
 
             fixed (byte* ptr = bytes)
             {
                 return *(BuildUsageTagGlobal*)ptr;
-            }
-        }
-
-        static byte[] ReadVfsFile(string vfsPath)
-        {
-            var tempPath = Path.Combine("Temp", Path.GetRandomFileName());
-            try
-            {
-                FileUtil.CopyFileOrDirectory(vfsPath, tempPath);
-                return File.ReadAllBytes(tempPath);
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"Failed to read VFS file '{vfsPath}': {e.Message}");
-                return null;
-            }
-            finally
-            {
-                if (File.Exists(tempPath))
-                    File.Delete(tempPath);
             }
         }
 

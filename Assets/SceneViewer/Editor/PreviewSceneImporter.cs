@@ -25,7 +25,7 @@ namespace Unity.Pipeline.SceneViewer.Editor
     // Like PreviewContentImporter, a non-primary importer: Project Service runs it by type name
     // (T:{guid}+Unity.Pipeline.SceneViewer.Editor.PreviewSceneImporter). Bump the version when the
     // archive layout changes, so cached archives are rebuilt.
-    [ScriptedImporter(1, "___sceneviewer_scene___")]
+    [ScriptedImporter(2, "___sceneviewer_scene___")]
     public class PreviewSceneImporter : ScriptedImporter
     {
         public const string ArchiveArtifactName = "ca";
@@ -51,7 +51,7 @@ namespace Unity.Pipeline.SceneViewer.Editor
 
             var bytes = BuildSceneArchive(scenePath, target, message => ctx.LogImportError(message), guid => ctx.DependsOnArtifact(guid));
             if (bytes == null) return;
-            File.WriteAllBytes(ctx.GetOutputArtifactFilePath(ArchiveArtifactName), bytes);
+            ctx.SetOutputArtifactData(ArchiveArtifactName, bytes);   // 6.7+: path writes are no longer kept
             Debug.Log($"PreviewSceneImporter: wrote {target} scene archive ({bytes.Length} bytes) for {scenePath}");
         }
 

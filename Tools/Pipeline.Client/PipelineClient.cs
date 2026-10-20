@@ -570,11 +570,15 @@ public sealed class PipelineClient : IDisposable
         try
         {
             var h = await JsonAsync<WorkbenchHead>(HttpMethod.Get, $"{Wb(workbenchId)}/head", ct: ct).ConfigureAwait(false);
-            // Production's head omits validating/validatedRevision until a revision validates ({branch, head}
-            // only): a head with no validated revision yet is still settling, not unknown.
-            var readiness = h.Busy ? "settling" : !string.IsNullOrEmpty(h.Revision) ? "settled"
-                : !string.IsNullOrEmpty(h.Head) ? "settling" : "unknown";
-            return new WorkbenchReadiness(workbenchId, readiness, h.Branch, h.Revision, h.Head);
+            if (h.Busy) return new WorkbenchReadiness(workbenchId, "settling", h.Branch, h.Revision, h.Head);
+            if (!string.IsNullOrEmpty(h.Revision)) return new WorkbenchReadiness(workbenchId, "settled", h.Branch, h.Revision, h.Head);
+            // Production's head is only {branch, head}: the validated revision is on the workbench itself
+            // (validatedRevision, and per branch). Without one yet, it's still settling.
+            var wb = await GetWorkbenchAsync(workbenchId, ct).ConfigureAwait(false);
+            var validated = wb.ValidatedRevisionOf(h.Branch);
+            return !string.IsNullOrEmpty(validated)
+                ? new WorkbenchReadiness(workbenchId, "settled", h.Branch, validated, h.Head)
+                : new WorkbenchReadiness(workbenchId, string.IsNullOrEmpty(h.Head) ? "unknown" : "settling", h.Branch, null, h.Head);
         }
         catch (PipelineApiException e) when (e is { Status: 404, Code: "54" })
         {

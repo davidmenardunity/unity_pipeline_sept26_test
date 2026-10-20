@@ -935,7 +935,8 @@ async function pollWorkbench(id, first) {
     if (v?.status === "failed") {
       again = false;
       const msg = `${v.error?.category ?? "validation failed"}: ${v.error?.message ?? ""}` +
-        (v.error?.message?.includes("Broken pipe") ? "\nKnown cause: Unity 6.6+ projects. Use 6.5 or older." : "");
+        (v.error?.detail ? `\nDetail: ${v.error.detail}` : "") +
+        (v.error?.detail?.includes("BinaryFormatter") ? "\nKnown cause: the project's Unity version is no longer supported. Use Unity 6.7 or newer." : "");
       if (op) op.fail(msg); else banner(`Workbench ${short(id)} failed validation. ${msg}`);
     } else if (settled) {
       again = false;
