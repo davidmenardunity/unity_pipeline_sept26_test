@@ -15,7 +15,7 @@ List the project's connections:
 
 ```bash
 curl -sS -H "Authorization: Bearer $UNITY_JWT" \
-  "https://build-automation.staging.services.api.unity.com/v3/orgs/$ORG/projects/$PROJECT/connections"
+  "https://build-automation.services.api.unity.com/v3/orgs/$ORG/projects/$PROJECT/connections"
 ```
 
 ```json

@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace Pipeline.Client;
 
 /// <summary>
-/// Typed client for the Unity Pipeline, as served on staging through the
+/// Typed client for the Unity Pipeline, as served (production by default; PIPELINE_ENV=staging) through the
 /// pipeline broker (plus projectservice start/status on the internal host).
 ///
 /// Route shapes follow the broker's OpenAPI spec
@@ -570,7 +570,10 @@ public sealed class PipelineClient : IDisposable
         try
         {
             var h = await JsonAsync<WorkbenchHead>(HttpMethod.Get, $"{Wb(workbenchId)}/head", ct: ct).ConfigureAwait(false);
-            var readiness = h.Busy ? "settling" : string.IsNullOrEmpty(h.Revision) ? "unknown" : "settled";
+            // Production's head omits validating/validatedRevision until a revision validates ({branch, head}
+            // only): a head with no validated revision yet is still settling, not unknown.
+            var readiness = h.Busy ? "settling" : !string.IsNullOrEmpty(h.Revision) ? "settled"
+                : !string.IsNullOrEmpty(h.Head) ? "settling" : "unknown";
             return new WorkbenchReadiness(workbenchId, readiness, h.Branch, h.Revision, h.Head);
         }
         catch (PipelineApiException e) when (e is { Status: 404, Code: "54" })

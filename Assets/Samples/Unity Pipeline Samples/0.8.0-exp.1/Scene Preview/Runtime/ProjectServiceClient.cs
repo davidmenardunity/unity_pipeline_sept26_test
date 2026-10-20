@@ -30,7 +30,7 @@ namespace Unity.Pipeline.Samples.ScenePreview
 
         [Tooltip("Gateway base URL. Staging: " + AssetPipelineRoute.StagingGateway + " (needs the VPN). Production: " +
                  AssetPipelineRoute.ProductionGateway + ". Self Hosted: your service's address.")]
-        [SerializeField] string m_BaseUrl = AssetPipelineRoute.StagingGateway;
+        [SerializeField] string m_BaseUrl = AssetPipelineRoute.ProductionGateway;
 
         [Tooltip("The pipeline project's Unity Cloud organization: its numeric id (ORG_ID). Filled in from " +
                  "Project Settings > Services when empty, which is only right if the project is linked to the " +

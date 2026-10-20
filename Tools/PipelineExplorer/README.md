@@ -1,6 +1,7 @@
 # Pipeline Explorer
 
-A small local web app for trying the Unity Pipeline APIs on staging: browse a
+A small local web app for trying the Unity Pipeline APIs (production by default; set
+`PIPELINE_ENV=staging` in `Tools/.env` for staging): browse a
 project, switch branches, start workbenches, and request a file's artifacts
 (`.meta`, source, preview, and import content files).
 
@@ -114,7 +115,7 @@ Build Profile** recreates its scene and profile).
 | **Comments** | `/api/collab/…` passes through to `/collaboration/v1/…` (same host as the pipeline): `POST projects/{p}/annotations-search {target: unity/projects/{p}/assets/{guid}}` (the target form Collaboration accepts and its dashboard shows; older players' targets are rewritten to it), `POST …/annotations/export` (every asset), `GET …/annotations/{id}/replies`, `POST …/annotations` (comments and replies), `PATCH …/resolve` / `…/unresolve`, `DELETE …/annotations/{id}`. The player's Collaboration SDK calls the same route. Collaboration refuses the pipeline's user JWT (issuer `unity-ads`) and takes a Genesis access token: **Use a token for comments…** takes one (kept like the first, in `collab-token.dat`). `@` lists come from `GET …/api/access/legacy/v1/organizations/{org}/members`. |
 | Exchange (in **Activity** and the **Calls** tab) | Every call the server made, grouped by operation. Select one for the full exchange (token redacted) or **Copy as curl**. |
 
-Known staging limits (see the pipeline playground's README): the first import
+Known limits, first seen on staging (see the pipeline playground's README): the first import
 requests after a cold start can answer `409 revision_not_validated` for
 minutes (press **Retry**); `T:` addresses only resolve for importers the
 project has (`import_not_found` otherwise).

@@ -375,13 +375,16 @@ async function onPickProject() {
   if (!project) return;
   const org = $("org").value.trim();
   await postJson("/api/select", { organizationId: org, projectId: project });
-  writePref("selection", { org, project });
+  writePref(selectionKey(), { org, project });
   if ((await loadConfig()) === "ok") await openProject();
 }
 
+// The remembered org/project is per environment: a staging pick means nothing in production.
+function selectionKey() { return `selection.${App.config?.environment ?? "production"}`; }
+
 async function start() {
   if ((await loadConfig()) === "token") return;
-  const saved = readPref("selection");
+  const saved = readPref(selectionKey());
   const org = saved?.org || App.config.organizationId;
   const project = saved?.org ? saved.project : App.config.projectId;
   $("org").value = org ?? "";
@@ -410,8 +413,8 @@ async function pasteToken() {
   const pasted = App.config?.tokenSource === "pasted";
   const token = await ask({
     title: "Bearer token",
-    message: "Open the staging Unity Cloud dashboard, then devtools > Network, pick a request to " +
-      "staging.services.api.unity.com and copy its Authorization header (\"Bearer \" is stripped). " +
+    message: "Open the Unity Cloud dashboard (cloud.unity.com), then devtools > Network, pick a request to " +
+      "services.api.unity.com and copy its Authorization header (\"Bearer \" is stripped). " +
       "The app saves it encrypted for your Windows account, outside the repo." +
       (pasted ? " Leave the field empty to forget the saved token and use the one in .env." : ""),
     value: "", placeholder: "eyJ…", ok: "Use token", secret: true,
@@ -630,6 +633,8 @@ async function newWorkbench() {
   let connections = null;
   try { connections = await getJson("/api/vcs-connections"); } catch { /* listed below as unknown */ }
   const norm = (u) => (u ?? "").toLowerCase().replace(/\.git$/, "").replace(/\/+$/, "");
+  // A new project has no workbenches to learn the repo from: use its only VCS connection's repo.
+  if (!App.repository && connections?.length === 1) App.repository = connections[0].url;
   let forRepo = connections?.find((c) => norm(c.url) === norm(App.repository));
   // No connection for this repo: offer to make one now, so the workbench can publish.
   let connectionError = null;

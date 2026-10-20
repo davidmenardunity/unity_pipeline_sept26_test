@@ -1136,7 +1136,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   m_Mode: 0
-  m_BaseUrl: https://services.unity.com
+  m_BaseUrl: https://services.api.unity.com
   m_OrgId: 1375990461336
   m_ProjectGuid: 3b6fc3cb-0529-4e60-8e37-671e115e40c4
   m_PreferWaitSeconds: 20

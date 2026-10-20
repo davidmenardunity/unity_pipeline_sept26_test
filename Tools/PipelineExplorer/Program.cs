@@ -136,7 +136,7 @@ api.MapPost("/collab-token", async (Pipelines p, PastedToken body, CancellationT
         return Results.BadRequest(new { error = "that doesn't look like a token (one word, at least 20 characters)" });
     // An opaque Genesis token is exchanged for a JWT on each use: check now that it can be.
     if (!token.StartsWith("eyJ", StringComparison.Ordinal) && !await p.Default.CanExchangeGenesisAsync(token, ct))
-        return Results.BadRequest(new { error = "Unity's token exchange refused it: check it's a current Genesis access token for staging" });
+        return Results.BadRequest(new { error = "Unity's token exchange refused it: check it's a current Genesis access token for this environment" });
     p.SetCollaborationToken(token);
     return Results.Ok(p.Describe());
 });

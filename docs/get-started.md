@@ -10,7 +10,7 @@ This page sets up what every use case needs: credentials, the API's hosts, a run
 
 ## Hosts and base routes
 
-The Pipeline API has a public host and an internal host:
+The Pipeline API has a public host and an internal host. The examples on these pages use production:
 
 | Purpose | Staging | Production |
 | --- | --- | --- |
@@ -29,8 +29,8 @@ The examples on these pages use the following shell variables:
 export UNITY_JWT='<your bearer token>'
 export ORG='<organization id>'
 export PROJECT='<project id>'
-export API="https://staging.services.api.unity.com/api/pipeline/v1/organizations/$ORG/projects/$PROJECT"
-export INTERNAL="https://staging.services.unity.com/api/pipeline/v1/organizations/$ORG/projects/$PROJECT"
+export API="https://services.api.unity.com/api/pipeline/v1/organizations/$ORG/projects/$PROJECT"
+export INTERNAL="https://services.unity.com/api/pipeline/v1/organizations/$ORG/projects/$PROJECT"
 alias papi='curl -sS -H "Authorization: Bearer $UNITY_JWT" -H "Content-Type: application/json"'
 ```
 
@@ -47,7 +47,7 @@ var org = "<organization id>";
 var project = "<project id>";
 var http = new HttpClient
 {
-    BaseAddress = new Uri($"https://staging.services.api.unity.com/api/pipeline/v1/organizations/{org}/projects/{project}/"),
+    BaseAddress = new Uri($"https://services.api.unity.com/api/pipeline/v1/organizations/{org}/projects/{project}/"),
 };
 http.DefaultRequestHeaders.Authorization =
     new AuthenticationHeaderValue("Bearer", Environment.GetEnvironmentVariable("UNITY_JWT"));

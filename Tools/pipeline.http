@@ -1,14 +1,14 @@
 #
-# Unity Pipeline (staging) — every call, for VS Code's REST Client
+# Unity Pipeline (production) — every call, for VS Code's REST Client
 # (extension humao.rest-client). Click "Send Request" above a call.
 #
-# Settings come from .env next to this file (copy .env.example). Needs the
-# corporate VPN: off it, every call answers an HTML 403.
+# Settings come from .env next to this file (copy .env.example). Staging needs
+# the corporate VPN: off it, every staging call answers an HTML 403.
 #
 # NOT covered here, because they aren't HTTP calls on this API:
 #   - Unity Version Control enabled on your org *with a server location*
 #     (Unity Cloud dashboard). Without it, start answers 404 project_not_configured.
-#   - A Unity Cloud project linked to a PUBLIC GitHub repo, Unity 6.5 or older,
+#   - A Unity Cloud project linked to a PUBLIC GitHub repo, Unity 6.7 or newer (6.3 is no longer supported),
 #     no Git LFS (pipeline-main/README.md step 4 does it with the Unity CLI).
 #
 # Order for a first setup: 1 → 2 → 3 (wait for "settled") → 4, then anything below.
@@ -25,10 +25,10 @@
 @workbenchId = {{$dotenv WORKBENCH_ID}}
 @environmentId = {{$dotenv ENVIRONMENT_ID}}
 
-# Broker (public client host). Production: https://services.api.unity.com
-@base = https://staging.services.api.unity.com/api/pipeline/v1/organizations/{{org}}/projects/{{project}}
-# Project service start/status live on the INTERNAL host. Production: https://services.unity.com
-@internal = https://staging.services.unity.com/api/pipeline/v1/organizations/{{org}}/projects/{{project}}
+# Broker (public client host). Staging: https://staging.services.api.unity.com
+@base = https://services.api.unity.com/api/pipeline/v1/organizations/{{org}}/projects/{{project}}
+# Project service start/status live on the INTERNAL host. Staging: https://staging.services.unity.com
+@internal = https://services.unity.com/api/pipeline/v1/organizations/{{org}}/projects/{{project}}
 
 @wb = {{base}}/workbenches/{{workbenchId}}
 

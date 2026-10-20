@@ -45,7 +45,7 @@ The use cases in this documentation are working examples, each built against the
 To set up access and a workbench first, refer to [Get started with the Pipeline API](get-started.md). To understand the terms used throughout, refer to [Key concepts](key-concepts.md).
 
 > [!NOTE]
-> The Pipeline API is in preview. The routes and request bodies in this documentation are those served by the staging environment in October 2026. Some of them changed during that month; [Troubleshooting](troubleshooting.md) lists the changes that were observed.
+> The Pipeline API is in preview. The routes and request bodies in this documentation are those served in October 2026, when the API moved from staging to production. Some of them changed during that month; [Troubleshooting](troubleshooting.md) lists the changes that were observed.
 
 ## Additional resources
 

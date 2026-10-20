@@ -22,6 +22,12 @@ Problems you might run into with the Pipeline API, and how to solve them.
 
 **Resolution:** Store the branch when you create the workbench. If the request is cut off, Project Service still creates the workbench: record the branch under the workbench's name before sending, and match it by name afterwards. As a fallback, compare the workbench's `upstreamRevision` with `git ls-remote`. This only works while branches point to different commits.
 
+### Validation fails with `infra_failed` and no reason
+
+**Cause:** The project's Unity version isn't one Project Service supports. In October 2026 production stopped supporting Unity 6.3; the error doesn't say so.
+
+**Resolution:** Upgrade the project to Unity 6.7 or newer, push, and create a new workbench from that commit. A workbench made from the old commit keeps failing.
+
 ### Reads fail with `409 revision_not_validated`
 
 **Cause:** The revision isn't validated yet, which is common right after a workbench starts.

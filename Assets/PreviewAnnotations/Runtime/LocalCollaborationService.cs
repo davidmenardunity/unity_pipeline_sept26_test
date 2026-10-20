@@ -47,7 +47,7 @@ namespace Unity.Pipeline.PreviewAnnotations
             public FixedHostResolver(string address) => m_Address = address;
 
 #pragma warning disable CS0618 // part of the interface
-            public ServiceEnvironment GetResolvedEnvironment() => ServiceEnvironment.Staging;
+            public ServiceEnvironment GetResolvedEnvironment() => ServiceEnvironment.Production;
             public ServiceDomainProvider GetResolvedDomainProvider() => ServiceDomainProvider.UnityServices;
 #pragma warning restore CS0618
             public string GetResolvedAddress(ServiceProtocol protocol = ServiceProtocol.Http) => m_Address;

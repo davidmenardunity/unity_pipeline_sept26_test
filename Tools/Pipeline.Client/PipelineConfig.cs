@@ -74,7 +74,7 @@ public sealed record PipelineConfig(
             Token: Get("UNITY_JWT"),
             OrganizationId: Get("ORG_ID"),
             ProjectId: Get("PROJECT_ID"),
-            Environment: Get("PIPELINE_ENV", "staging") is "production" or "prod" ? "production" : "staging",
+            Environment: Get("PIPELINE_ENV", "production") is "staging" ? "staging" : "production",
             Branch: Get("BRANCH", "main"),
             Region: Get("PIPELINE_REGION", "America"),
             Platform: Get("PIPELINE_PLATFORM", "Windows64"),
