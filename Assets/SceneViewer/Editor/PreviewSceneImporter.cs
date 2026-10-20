@@ -25,7 +25,7 @@ namespace Unity.Pipeline.SceneViewer.Editor
     // Like PreviewContentImporter, a non-primary importer: Project Service runs it by type name
     // (T:{guid}+Unity.Pipeline.SceneViewer.Editor.PreviewSceneImporter). Bump the version when the
     // archive layout changes, so cached archives are rebuilt.
-    [ScriptedImporter(2, "___sceneviewer_scene___")]
+    [ScriptedImporter(3, "___sceneviewer_scene___", AllowCaching = true)]
     public class PreviewSceneImporter : ScriptedImporter
     {
         public const string ArchiveArtifactName = "ca";

@@ -26,7 +26,7 @@ namespace Unity.Pipeline.Samples.ScenePreview.Importer
     // specified build profile", and any ProduceArtifact call hangs forever waiting on workers that
     // keep dying.
     [InitializeOnLoad]
-    [ScriptedImporter(3, "___scenepreview_context___")]
+    [ScriptedImporter(4, "___scenepreview_context___", AllowCaching = true)]
     public class PreviewContextImporter : ScriptedImporter
     {
         // The preview build profile: the one the preview player is built from. Independent of whatever

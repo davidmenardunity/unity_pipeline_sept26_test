@@ -20,7 +20,9 @@ namespace Unity.Pipeline.Samples.ScenePreview.Importer
     //
     // This is a starting point: copy it and change BuildContentArchive to produce whatever your preview
     // player needs (other object filters, extra payloads in the manifest, a different archive layout).
-    [ScriptedImporter(9, "___scenepreview_content___")]
+    // AllowCaching: only then does the Editor upload the result to the Accelerator, which is where
+    // Project Service's worker reads it from (without it, imports answer 422 no_produced_files).
+    [ScriptedImporter(10, "___scenepreview_content___", AllowCaching = true)]
     public class PreviewContentImporter : ScriptedImporter
     {
         public const string ArchiveArtifactName = "ca";

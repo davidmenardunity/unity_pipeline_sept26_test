@@ -5,7 +5,7 @@ using UnityEngine;
 // Imports .pipetxt files as a TextAsset and writes one extra output file per import,
 // to try the Unity Pipeline's import "content files" (artifacts).
 // Pipeline address: T:{guid}+PipelineTextImporter
-[ScriptedImporter(2, "pipetxt")]
+[ScriptedImporter(3, "pipetxt", AllowCaching = true)]
 public class PipelineTextImporter : ScriptedImporter
 {
     public override void OnImportAsset(AssetImportContext ctx)
