@@ -107,8 +107,8 @@ MonoBehaviour:
   m_PrefilterXRKeywords: 1
   m_PrefilteringModeForwardPlus: 2
   m_PrefilteringModeDeferredRendering: 0
-  m_PrefilteringModeScreenSpaceOcclusion: 2
-  m_PrefilteringModeScreenSpaceReflection: 1
+  m_PrefilteringModeScreenSpaceOcclusion: 1
+  m_PrefilteringModeScreenSpaceReflection: 0
   m_PrefilterWriteSmoothness: 1
   m_PrefilterDebugKeywords: 1
   m_PrefilterWriteRenderingLayers: 1
@@ -131,9 +131,9 @@ MonoBehaviour:
   m_PrefilterReflectionProbeBlending: 0
   m_PrefilterReflectionProbeBoxProjection: 0
   m_PrefilterReflectionProbeAtlas: 0
-  m_PrefilterPointSamplingUpsampling: 0
-  m_PrefilterExposure: 0
-  m_PrefilterVolumetricFog: 0
+  m_PrefilterPointSamplingUpsampling: 1
+  m_PrefilterExposure: 1
+  m_PrefilterVolumetricFog: 1
   m_Light2DPrefilteringMode: 0
   m_Light2DKeptVariantCombos: []
   m_ShaderVariantLogLevel: 0
