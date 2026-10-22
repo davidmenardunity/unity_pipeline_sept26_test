@@ -442,6 +442,14 @@ rev.MapPost("/player-archive", async (Pipelines p, string wb, string rev, Player
         try
         {
             slot = await c.RequestImportAsync(wb, env.EnvironmentId, rev, address, null, ct);
+            // A big import (a scene, in a new environment) outlasts the gateway: the result then carries
+            // backend_bad_gateway / a timeout while the worker keeps going. Ask again; it answers once it's done.
+            if (IsTransientImportError(slot.Error?.Code) && DateTime.UtcNow < deadline)
+            {
+                steps.Add($"import attempt {attempt}: {slot.Error!.Code} (still producing); re-sending");
+                await Task.Delay(TimeSpan.FromSeconds(5), ct);
+                continue;
+            }
             steps.Add($"import {address}: done (attempt {attempt})");
             break;
         }
@@ -601,6 +609,12 @@ static IResult Bytes(byte[] bytes, string fileName)
     if (Text.Looks(bytes)) return Results.File(bytes, "text/plain; charset=utf-8");
     return Results.File(bytes, "application/octet-stream", fileName);
 }
+
+// Import results that mean "the gateway gave up waiting", not "the import failed".
+static bool IsTransientImportError(string? code) =>
+    code is not null && (code.Contains("bad_gateway", StringComparison.OrdinalIgnoreCase)
+                         || code.Contains("timeout", StringComparison.OrdinalIgnoreCase)
+                         || code.Contains("unavailable", StringComparison.OrdinalIgnoreCase));
 
 record NewVcsConnection(string? Name, string? Url, string? User, string? Token);
 record NewWorkbench(string Branch, string? Repository, string? Name, string? VcsConnectionId = null);
