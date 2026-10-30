@@ -8,6 +8,9 @@ namespace Pipeline.Client;
 
 public sealed record Page<T>(IReadOnlyList<T> Items);
 
+/// <summary>Asset search: {items:[…]} until October 2026, {workbenchVersion, results:[…]} since.</summary>
+public sealed record SearchPage(IReadOnlyList<SearchHit>? Items, IReadOnlyList<SearchHit>? Results);
+
 /// <summary>The workbench list: {items:[…]} until October 2026, {workbenches:[…]} since.</summary>
 public sealed record WorkbenchList(IReadOnlyList<Workbench>? Items, IReadOnlyList<Workbench>? Workbenches);
 

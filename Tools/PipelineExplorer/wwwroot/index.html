@@ -140,6 +140,64 @@
     </aside>
   </main>
 
+  <!-- Co-authoring: people and agents edit one scene with Unity CLI commands (coauthor.js). -->
+  <main class="view work coauthor" id="view-coauthor" data-example="coauthor" hidden>
+    <aside class="col files" aria-label="Scenes, prefabs and people">
+      <div class="col-head">People <span class="grow"></span><button class="btn small ghost" id="coName" type="button"></button></div>
+      <ul class="co-people" id="coPeople"></ul>
+      <div class="col-head">Hierarchy <span class="grow"></span><span class="mono plain" id="coCount"></span></div>
+      <div style="padding:6px 16px 0"><input class="filter" id="coFilter" type="search" placeholder="Filter objects" aria-label="Filter objects" style="width:100%"></div>
+      <ul class="otree co-hier" id="coHier"></ul>
+      <div class="col-head">Scenes and prefabs <span class="grow"></span><span class="mono plain" id="coRev"></span></div>
+      <p class="muted small" style="margin:8px 16px 0">Click a .unity scene to join it. Drag a prefab into the view to add it.</p>
+      <ul class="tree" id="coTree"></ul>
+    </aside>
+    <section class="col level-stage" aria-label="Scene">
+      <div class="folder-head" id="coHead"></div>
+      <div class="level-view">
+        <iframe id="coPlayer" title="Co-authoring view"></iframe>
+        <div class="stage-overlay center" id="coOverlay"></div>
+      </div>
+      <div class="changebar" id="coBar"></div>
+    </section>
+    <aside class="col inspector co-side" aria-label="Commands">
+      <section class="co-claude" aria-label="Ask Claude">
+        <div class="col-head">Ask Claude <span class="grow"></span><span class="muted small" id="coClaudeState"></span></div>
+        <form class="co-ask" id="coAskForm">
+          <textarea id="coAsk" rows="2" placeholder="Put a ring of six barrels around the tower, and make the tower twice as tall" aria-label="What should Claude change?"></textarea>
+          <button class="btn small primary" type="submit">Ask</button>
+        </form>
+        <ul class="co-claude-log" id="coClaude"></ul>
+      </section>
+      <form class="co-form" id="coForm">
+        <input id="coInput" list="coCommands" autocomplete="off" spellcheck="false" placeholder="create_gameobject --name Crate --primitive cube" aria-label="A Unity CLI command">
+        <button class="btn small primary" type="submit">Run</button>
+      </form>
+      <datalist id="coCommands"></datalist>
+      <div id="coSelection"></div>
+      <div class="col-head">Activity</div>
+      <ul class="co-feed" id="coFeed"></ul>
+    </aside>
+  </main>
+
+  <!-- Animations (animations.js): every clip in the workbench, played in the animation viewer's WebGL runtime. -->
+  <main class="view work anim" id="view-animations" data-example="animations" hidden>
+    <aside class="col files" aria-label="Animations">
+      <div class="col-head">Animations <span class="grow"></span><span class="mono plain" id="avRev"></span>
+        <button class="btn small ghost" id="avRefresh" type="button" title="Read the workbench again">↻</button></div>
+      <div style="padding:8px 16px 0"><input class="filter" id="avFilter" type="search" placeholder="Filter clips" aria-label="Filter clips" style="width:100%"></div>
+      <ul class="otree" id="avList"></ul>
+    </aside>
+    <section class="col level-stage" aria-label="Preview">
+      <div class="folder-head" id="avHead"></div>
+      <div class="level-view">
+        <iframe id="avPlayer" title="Animation viewer"></iframe>
+        <div class="stage-overlay center" id="avOverlay"></div>
+      </div>
+    </section>
+    <aside class="col inspector" aria-label="Clip" id="avDetails"></aside>
+  </main>
+
   <main class="view blank" id="view-custom" hidden></main>
 
   <footer class="status" id="status" aria-live="polite">
@@ -176,6 +234,8 @@
   <script src="edit.js"></script>
   <script src="compare.js"></script>
   <script src="leveleditor.js"></script>
+  <script src="coauthor.js"></script>
+  <script src="animations.js"></script>
   <script>App.boot();</script>
 </body>
 </html>

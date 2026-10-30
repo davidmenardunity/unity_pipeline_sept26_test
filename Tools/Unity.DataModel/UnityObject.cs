@@ -17,7 +17,11 @@ namespace Unity.DataModel
         {
             File = file;
             Document = document;
+            Generation = file.Generation;
         }
+
+        /// <summary>The file's <see cref="UnityFile.Generation"/> this object was read in.</summary>
+        public int Generation { get; }
 
         internal static UnityObject Create(UnityFile file, YamlDocument doc) => doc.ClassId switch
         {

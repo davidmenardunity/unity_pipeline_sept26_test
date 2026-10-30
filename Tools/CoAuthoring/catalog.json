@@ -1,0 +1,1265 @@
+{
+ "source": "com.unity.pipeline 0.7.0-exp.1, GET /api/commands (detail=full) from the Unity 6000.7.0b4 Editor, 2026-10-30",
+ "commands": [
+  {
+   "name": "create_gameobject",
+   "description": "Create an empty GameObject or a built-in primitive (cube/sphere/capsule/cylinder/plane/quad) in the active scene.",
+   "tags": [
+    "gameobjects"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "name",
+     "description": "Name for the new GameObject. Defaults to 'GameObject' (or the primitive name).",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "primitive",
+     "description": "Optional primitive type: cube, sphere, capsule, cylinder, plane, quad. Omit for an empty GameObject.",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "parent",
+     "description": "Optional parent handle (globalId/path/guid/instanceId/hierarchyPath). The new object becomes a child of it.",
+     "type": "ObjectRef",
+     "required": false,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "create_gameobject",
+    "description": "Create an empty GameObject or a built-in primitive (cube/sphere/capsule/cylinder/plane/quad) in the active scene.",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "Name for the new GameObject. Defaults to 'GameObject' (or the primitive name)."
+     },
+     "primitive": {
+      "type": "string",
+      "description": "Optional primitive type: cube, sphere, capsule, cylinder, plane, quad. Omit for an empty GameObject."
+     },
+     "parent": {
+      "type": "string",
+      "description": "Optional parent handle (globalId/path/guid/instanceId/hierarchyPath). The new object becomes a child of it."
+     }
+    },
+    "required": [],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.GameObjects.GameObjectCommands.CreateGameObject"
+    }
+   }
+  },
+  {
+   "name": "create_gameobjects",
+   "description": "Batch-create N empty GameObjects or primitives in one call. Optional positions/rotations/scales are arrays of [x,y,z] (length must equal count). Returns the created identities.",
+   "tags": [
+    "gameobjects"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "name",
+     "description": "Base name. With count>1 and no explicit names, objects are suffixed Name1..NameN.",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "primitive",
+     "description": "Optional primitive type: cube, sphere, capsule, cylinder, plane, quad. Omit for empty GameObjects.",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "parent",
+     "description": "Optional parent handle. Every created object becomes a child of it.",
+     "type": "ObjectRef",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "count",
+     "description": "How many GameObjects to create. Default 1.",
+     "type": "Int32",
+     "required": false,
+     "defaultValue": 1
+    },
+    {
+     "name": "positions",
+     "description": "Local positions, one [x,y,z] per object. Length must equal count when supplied.",
+     "type": "Single[][]",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "rotations",
+     "description": "Local Euler rotations (degrees), one [x,y,z] per object. Length must equal count when supplied.",
+     "type": "Single[][]",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "scales",
+     "description": "Local scales, one [x,y,z] per object. Length must equal count when supplied.",
+     "type": "Single[][]",
+     "required": false,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "create_gameobjects",
+    "description": "Batch-create N empty GameObjects or primitives in one call. Optional positions/rotations/scales are arrays of [x,y,z] (length must equal count). Returns the created identities.",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "Base name. With count>1 and no explicit names, objects are suffixed Name1..NameN."
+     },
+     "primitive": {
+      "type": "string",
+      "description": "Optional primitive type: cube, sphere, capsule, cylinder, plane, quad. Omit for empty GameObjects."
+     },
+     "parent": {
+      "type": "string",
+      "description": "Optional parent handle. Every created object becomes a child of it."
+     },
+     "count": {
+      "type": "integer",
+      "description": "How many GameObjects to create. Default 1.",
+      "default": 1
+     },
+     "positions": {
+      "type": "array",
+      "items": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       }
+      },
+      "description": "Local positions, one [x,y,z] per object. Length must equal count when supplied."
+     },
+     "rotations": {
+      "type": "array",
+      "items": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       }
+      },
+      "description": "Local Euler rotations (degrees), one [x,y,z] per object. Length must equal count when supplied."
+     },
+     "scales": {
+      "type": "array",
+      "items": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       }
+      },
+      "description": "Local scales, one [x,y,z] per object. Length must equal count when supplied."
+     }
+    },
+    "required": [],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.GameObjects.GameObjectCommands.CreateGameObjects"
+    }
+   }
+  },
+  {
+   "name": "find_gameobjects",
+   "description": "Find GameObjects in loaded scenes by name, tag, component type, and/or hierarchy path (filters are combined). Returns structured identities.",
+   "tags": [
+    "gameobjects"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "name",
+     "description": "Exact name to match.",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "tag",
+     "description": "Tag to match (e.g. 'Player').",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "type",
+     "description": "Component type name to match (e.g. 'Rigidbody', 'UnityEngine.Camera').",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "hierarchy_path",
+     "description": "Exact hierarchy path to match (e.g. '/Root/Child').",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "include_inactive",
+     "description": "Include inactive GameObjects. Default true.",
+     "type": "Boolean",
+     "required": false,
+     "defaultValue": true
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "find_gameobjects",
+    "description": "Find GameObjects in loaded scenes by name, tag, component type, and/or hierarchy path (filters are combined). Returns structured identities.",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "Exact name to match."
+     },
+     "tag": {
+      "type": "string",
+      "description": "Tag to match (e.g. 'Player')."
+     },
+     "type": {
+      "type": "string",
+      "description": "Component type name to match (e.g. 'Rigidbody', 'UnityEngine.Camera')."
+     },
+     "hierarchy_path": {
+      "type": "string",
+      "description": "Exact hierarchy path to match (e.g. '/Root/Child')."
+     },
+     "include_inactive": {
+      "type": "boolean",
+      "description": "Include inactive GameObjects. Default true.",
+      "default": true
+     }
+    },
+    "required": [],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.GameObjects.GameObjectCommands.FindGameObjects"
+    }
+   }
+  },
+  {
+   "name": "set_transform",
+   "description": "Set a GameObject's local position/rotation(euler)/scale. Omitted channels are left unchanged.",
+   "tags": [
+    "gameobjects"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "target",
+     "description": "Handle of the GameObject to modify.",
+     "type": "ObjectRef",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "position",
+     "description": "Local position as [x,y,z].",
+     "type": "Single[]",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "rotation",
+     "description": "Local rotation as Euler angles [x,y,z] in degrees.",
+     "type": "Single[]",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "scale",
+     "description": "Local scale as [x,y,z].",
+     "type": "Single[]",
+     "required": false,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "set_transform",
+    "description": "Set a GameObject's local position/rotation(euler)/scale. Omitted channels are left unchanged.",
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "Handle of the GameObject to modify."
+     },
+     "position": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "description": "Local position as [x,y,z]."
+     },
+     "rotation": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "description": "Local rotation as Euler angles [x,y,z] in degrees."
+     },
+     "scale": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "description": "Local scale as [x,y,z]."
+     }
+    },
+    "required": [
+     "target"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.GameObjects.GameObjectCommands.SetTransform"
+    }
+   }
+  },
+  {
+   "name": "set_parent",
+   "description": "Reparent a GameObject under a new parent, or detach it to scene root when no parent is given.",
+   "tags": [
+    "gameobjects"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "target",
+     "description": "Handle of the GameObject to reparent.",
+     "type": "ObjectRef",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "parent",
+     "description": "Handle of the new parent. Omit (or empty) to move the object to the scene root.",
+     "type": "ObjectRef",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "world_position_stays",
+     "description": "Keep the object's world position when reparenting. Default true.",
+     "type": "Boolean",
+     "required": false,
+     "defaultValue": true
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "set_parent",
+    "description": "Reparent a GameObject under a new parent, or detach it to scene root when no parent is given.",
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "Handle of the GameObject to reparent."
+     },
+     "parent": {
+      "type": "string",
+      "description": "Handle of the new parent. Omit (or empty) to move the object to the scene root."
+     },
+     "world_position_stays": {
+      "type": "boolean",
+      "description": "Keep the object's world position when reparenting. Default true.",
+      "default": true
+     }
+    },
+    "required": [
+     "target"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.GameObjects.GameObjectCommands.SetParent"
+    }
+   }
+  },
+  {
+   "name": "set_active",
+   "description": "Set a GameObject's active self-state (activeSelf).",
+   "tags": [
+    "gameobjects"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "target",
+     "description": "Handle of the GameObject.",
+     "type": "ObjectRef",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "active",
+     "description": "Desired active state.",
+     "type": "Boolean",
+     "required": true,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "set_active",
+    "description": "Set a GameObject's active self-state (activeSelf).",
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "Handle of the GameObject."
+     },
+     "active": {
+      "type": "boolean",
+      "description": "Desired active state."
+     }
+    },
+    "required": [
+     "target",
+     "active"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.GameObjects.GameObjectCommands.SetActive"
+    }
+   }
+  },
+  {
+   "name": "set_tag",
+   "description": "Set a GameObject's tag (the tag must already exist in the project).",
+   "tags": [
+    "gameobjects"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "target",
+     "description": "Handle of the GameObject.",
+     "type": "ObjectRef",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "tag",
+     "description": "Tag to assign (must exist in the Tag Manager).",
+     "type": "String",
+     "required": true,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "set_tag",
+    "description": "Set a GameObject's tag (the tag must already exist in the project).",
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "Handle of the GameObject."
+     },
+     "tag": {
+      "type": "string",
+      "description": "Tag to assign (must exist in the Tag Manager)."
+     }
+    },
+    "required": [
+     "target",
+     "tag"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.GameObjects.GameObjectCommands.SetTag"
+    }
+   }
+  },
+  {
+   "name": "set_layer",
+   "description": "Set a GameObject's layer by name or numeric index (0-31).",
+   "tags": [
+    "gameobjects"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "target",
+     "description": "Handle of the GameObject.",
+     "type": "ObjectRef",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "layer",
+     "description": "Layer name (e.g. 'UI') or numeric index 0-31.",
+     "type": "String",
+     "required": true,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "set_layer",
+    "description": "Set a GameObject's layer by name or numeric index (0-31).",
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "Handle of the GameObject."
+     },
+     "layer": {
+      "type": "string",
+      "description": "Layer name (e.g. 'UI') or numeric index 0-31."
+     }
+    },
+    "required": [
+     "target",
+     "layer"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.GameObjects.GameObjectCommands.SetLayer"
+    }
+   }
+  },
+  {
+   "name": "rename_gameobject",
+   "description": "Rename a GameObject.",
+   "tags": [
+    "gameobjects"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "target",
+     "description": "Handle of the GameObject.",
+     "type": "ObjectRef",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "name",
+     "description": "New name.",
+     "type": "String",
+     "required": true,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "rename_gameobject",
+    "description": "Rename a GameObject.",
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "Handle of the GameObject."
+     },
+     "name": {
+      "type": "string",
+      "description": "New name."
+     }
+    },
+    "required": [
+     "target",
+     "name"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.GameObjects.GameObjectCommands.RenameGameObject"
+    }
+   }
+  },
+  {
+   "name": "delete_gameobject",
+   "description": "Delete a GameObject from the scene (reversible via Undo).",
+   "tags": [
+    "gameobjects"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "target",
+     "description": "Handle of the GameObject to delete.",
+     "type": "ObjectRef",
+     "required": true,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "delete_gameobject",
+    "description": "Delete a GameObject from the scene (reversible via Undo).",
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "Handle of the GameObject to delete."
+     }
+    },
+    "required": [
+     "target"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.GameObjects.GameObjectCommands.DeleteGameObject"
+    }
+   }
+  },
+  {
+   "name": "add_component",
+   "description": "Add a component (by type name) to a GameObject.",
+   "tags": [
+    "gameobjects/components"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "target",
+     "description": "Handle of the GameObject.",
+     "type": "ObjectRef",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "type",
+     "description": "Component type name (e.g. 'Rigidbody' or 'UnityEngine.Camera').",
+     "type": "String",
+     "required": true,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "add_component",
+    "description": "Add a component (by type name) to a GameObject.",
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "Handle of the GameObject."
+     },
+     "type": {
+      "type": "string",
+      "description": "Component type name (e.g. 'Rigidbody' or 'UnityEngine.Camera')."
+     }
+    },
+    "required": [
+     "target",
+     "type"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.GameObjects.ComponentCommands.AddComponent"
+    }
+   }
+  },
+  {
+   "name": "remove_component",
+   "description": "Remove a component from a GameObject. Provide either a component handle (target) or a GameObject handle (target) plus a type name.",
+   "tags": [
+    "gameobjects/components"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "target",
+     "description": "Handle of the component to remove, OR of the GameObject when 'type' is given.",
+     "type": "ObjectRef",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "type",
+     "description": "Component type name to remove from the target GameObject (omit when 'target' already points at a component).",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "remove_component",
+    "description": "Remove a component from a GameObject. Provide either a component handle (target) or a GameObject handle (target) plus a type name.",
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "Handle of the component to remove, OR of the GameObject when 'type' is given."
+     },
+     "type": {
+      "type": "string",
+      "description": "Component type name to remove from the target GameObject (omit when 'target' already points at a component)."
+     }
+    },
+    "required": [
+     "target"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.GameObjects.ComponentCommands.RemoveComponent"
+    }
+   }
+  },
+  {
+   "name": "get_component_properties",
+   "description": "Get a component's serialized properties as a JSON map. Address the component by handle, or by GameObject handle + type.",
+   "tags": [
+    "gameobjects/components"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "target",
+     "description": "Handle of the component, OR of the GameObject when 'type' is given.",
+     "type": "ObjectRef",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "type",
+     "description": "Component type name on the target GameObject (omit when 'target' is a component handle).",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "get_component_properties",
+    "description": "Get a component's serialized properties as a JSON map. Address the component by handle, or by GameObject handle + type.",
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "Handle of the component, OR of the GameObject when 'type' is given."
+     },
+     "type": {
+      "type": "string",
+      "description": "Component type name on the target GameObject (omit when 'target' is a component handle)."
+     }
+    },
+    "required": [
+     "target"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.GameObjects.ComponentCommands.GetComponentProperties"
+    }
+   }
+  },
+  {
+   "name": "set_component_properties",
+   "description": "Set serialized properties on a component (one Undo step). 'properties' maps property name -> value; object references accept an ObjectRef handle.",
+   "tags": [
+    "gameobjects/components"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "target",
+     "description": "Handle of the component, OR of the GameObject when 'type' is given.",
+     "type": "ObjectRef",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "properties",
+     "description": "Map of serialized property name to value. Vectors/colors are arrays; object refs are handle objects.",
+     "type": "JObject",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "type",
+     "description": "Component type name on the target GameObject (omit when 'target' is a component handle).",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "set_component_properties",
+    "description": "Set serialized properties on a component (one Undo step). 'properties' maps property name -> value; object references accept an ObjectRef handle.",
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "Handle of the component, OR of the GameObject when 'type' is given."
+     },
+     "properties": {
+      "type": "string",
+      "description": "Map of serialized property name to value. Vectors/colors are arrays; object refs are handle objects."
+     },
+     "type": {
+      "type": "string",
+      "description": "Component type name on the target GameObject (omit when 'target' is a component handle)."
+     }
+    },
+    "required": [
+     "target",
+     "properties"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.GameObjects.ComponentCommands.SetComponentProperties"
+    }
+   }
+  },
+  {
+   "name": "get_scene_hierarchy",
+   "description": "Return the GameObject tree of an open scene (or the active scene). Each node carries instanceId + hierarchyPath usable by GameObject commands.",
+   "tags": [
+    "scenes"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "path",
+     "description": "Path of the open scene to snapshot (authoring-root relative; Assets/ prefix and .unity optional). Omit for the active scene.",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "get_scene_hierarchy",
+    "description": "Return the GameObject tree of an open scene (or the active scene). Each node carries instanceId + hierarchyPath usable by GameObject commands.",
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Path of the open scene to snapshot (authoring-root relative; Assets/ prefix and .unity optional). Omit for the active scene."
+     }
+    },
+    "required": [],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.Scenes.SceneCommands.GetSceneHierarchy"
+    }
+   }
+  },
+  {
+   "name": "instantiate_prefab",
+   "description": "Instantiate a prefab asset into a loaded scene and return the created instance.",
+   "tags": [
+    "prefabs"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "prefab",
+     "description": "Reference to the prefab asset to instantiate (path/guid/globalId).",
+     "type": "ObjectRef",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "scene_path",
+     "description": "Optional path of a loaded scene to instantiate into; defaults to the active scene.",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "name",
+     "description": "Optional name for the created instance; defaults to the prefab name.",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "instantiate_prefab",
+    "description": "Instantiate a prefab asset into a loaded scene and return the created instance.",
+    "properties": {
+     "prefab": {
+      "type": "string",
+      "description": "Reference to the prefab asset to instantiate (path/guid/globalId)."
+     },
+     "scene_path": {
+      "type": "string",
+      "description": "Optional path of a loaded scene to instantiate into; defaults to the active scene."
+     },
+     "name": {
+      "type": "string",
+      "description": "Optional name for the created instance; defaults to the prefab name."
+     }
+    },
+    "required": [
+     "prefab"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.Prefabs.PrefabCommands.InstantiatePrefab"
+    }
+   }
+  },
+  {
+   "name": "set_serialized_field",
+   "description": "Set a serialized field on a component/asset. Supports primitives, enums, Vector/Color/Rect/Bounds, object references (value = an ObjectRef: asset by guid/fileId/path or scene object by instanceId/hierarchyPath), and array elements via 'name.Array.data[i]' (or 'name.Array.size' to resize).",
+   "tags": [
+    "scripts",
+    "gameobjects/components"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "target",
+     "description": "Reference to the component or asset to modify (globalId/path/guid/instanceId/hierarchyPath). May be a GameObject when 'component' is given.",
+     "type": "ObjectRef",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "field",
+     "description": "SerializedProperty path, e.g. 'speed', 'settings.speed', or 'waypoints.Array.data[0]'.",
+     "type": "String",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "value",
+     "description": "JSON value to assign. For object references pass an ObjectRef object (or null to clear). For enums pass the value name.",
+     "type": "JToken",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "component",
+     "description": "Component type name on the target GameObject (e.g. 'Rigidbody'). Use when 'target' is a GameObject; omit when 'target' is already a component handle.",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "set_serialized_field",
+    "description": "Set a serialized field on a component/asset. Supports primitives, enums, Vector/Color/Rect/Bounds, object references (value = an ObjectRef: asset by guid/fileId/path or scene object by instanceId/hierarchyPath), and array elements via 'name.Array.data[i]' (or 'name.Array.size' to resize).",
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "Reference to the component or asset to modify (globalId/path/guid/instanceId/hierarchyPath). May be a GameObject when 'component' is given."
+     },
+     "field": {
+      "type": "string",
+      "description": "SerializedProperty path, e.g. 'speed', 'settings.speed', or 'waypoints.Array.data[0]'."
+     },
+     "value": {
+      "type": "string",
+      "description": "JSON value to assign. For object references pass an ObjectRef object (or null to clear). For enums pass the value name."
+     },
+     "component": {
+      "type": "string",
+      "description": "Component type name on the target GameObject (e.g. 'Rigidbody'). Use when 'target' is a GameObject; omit when 'target' is already a component handle."
+     }
+    },
+    "required": [
+     "target",
+     "field",
+     "value"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.Scripts.SerializedFieldCommands.SetSerializedField"
+    }
+   }
+  },
+  {
+   "name": "get_serialized_fields",
+   "description": "Read serialized fields of a component/asset. Returns each top-level field's name, type and value (object references are returned as re-usable handles). Pass 'field' to read a single SerializedProperty path. Pass format='value' to return just the value(s) \u2014 a token-efficient read for scalars.",
+   "tags": [
+    "scripts",
+    "gameobjects/components"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "target",
+     "description": "Reference to the component or asset to read (globalId/path/guid/instanceId/hierarchyPath). May be a GameObject when 'component' is given.",
+     "type": "ObjectRef",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "field",
+     "description": "Optional single SerializedProperty path to read (e.g. 'speed' or 'items.Array.data[0]'). Omit to read all top-level fields.",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "component",
+     "description": "Component type name on the target GameObject (e.g. 'Rigidbody'). Use when 'target' is a GameObject; omit when 'target' is already a component handle.",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "format",
+     "description": "Output shape. Omit (default) for a full descriptor per field {name,path,propertyType,isArray,arrayLength,value}; 'value' returns just the value(s): the raw value for a single 'field', or a {name: value} map for all fields.",
+     "type": "String",
+     "required": false,
+     "defaultValue": null
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "get_serialized_fields",
+    "description": "Read serialized fields of a component/asset. Returns each top-level field's name, type and value (object references are returned as re-usable handles). Pass 'field' to read a single SerializedProperty path. Pass format='value' to return just the value(s) \u2014 a token-efficient read for scalars.",
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "Reference to the component or asset to read (globalId/path/guid/instanceId/hierarchyPath). May be a GameObject when 'component' is given."
+     },
+     "field": {
+      "type": "string",
+      "description": "Optional single SerializedProperty path to read (e.g. 'speed' or 'items.Array.data[0]'). Omit to read all top-level fields."
+     },
+     "component": {
+      "type": "string",
+      "description": "Component type name on the target GameObject (e.g. 'Rigidbody'). Use when 'target' is a GameObject; omit when 'target' is already a component handle."
+     },
+     "format": {
+      "type": "string",
+      "description": "Output shape. Omit (default) for a full descriptor per field {name,path,propertyType,isArray,arrayLength,value}; 'value' returns just the value(s): the raw value for a single 'field', or a {name: value} map for all fields."
+     }
+    },
+    "required": [
+     "target"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.Scripts.SerializedFieldCommands.GetSerializedFields"
+    }
+   }
+  },
+  {
+   "name": "batch",
+   "description": "Run multiple registered commands in one transactional request. Later ops can reference earlier results with \"$<id-or-index>.<jsonPath>\" (e.g. \"$0.instanceId\"; \"$$\" escapes a literal '$'). transactional=true (default) groups every op into one Undo step and reverts all applied ops if any op fails; commands that mutate outside the Undo system (asset/file/settings writes) are rejected unless transactional=false. on_error=abort|continue (continue forces transactional=false); dry_run validates without mutating; time_budget_ms (default 50000) bounds execution \u2014 when exceeded the remaining ops are skipped and a transactional batch rolls back (submit long batches with \"job\": true). Excludes build, switch_build_target, package_*, editor_play/stop/pause, recompile, eval, eval_file, run_script, menu, open_scene/create_scene, async commands (run_tests/list_tests), runtime-only commands, and nested batch.",
+   "tags": [
+    "batch"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "operations",
+     "description": "Ordered operations to run; each is { id?, command, params }. Max 200.",
+     "type": "List`1",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "transactional",
+     "description": "Group all ops into one Undo step and revert every applied op if any op fails. Default true. Forced false when on_error=continue. Rejects commands whose mutations Undo cannot revert (asset/file/settings writes).",
+     "type": "Boolean",
+     "required": false,
+     "defaultValue": true
+    },
+    {
+     "name": "on_error",
+     "description": "abort (default): stop at the first failing op. continue: run every op, collecting per-op errors (forces transactional=false).",
+     "type": "String",
+     "required": false,
+     "defaultValue": "abort"
+    },
+    {
+     "name": "dry_run",
+     "description": "Validate command names, parameters, reference topology and excluded commands without mutating anything.",
+     "type": "Boolean",
+     "required": false,
+     "defaultValue": false
+    },
+    {
+     "name": "result_fields",
+     "description": "Optional per-op result projection: map of op id-or-index -> array of result field paths to keep (context economy).",
+     "type": "JObject",
+     "required": false,
+     "defaultValue": null
+    },
+    {
+     "name": "time_budget_ms",
+     "description": "Cooperative time budget for the whole batch in milliseconds (default 50000, max 3600000). Checked before each op after the first; when exhausted the remaining ops are skipped and a transactional batch rolls back. Use \"job\": true for long batches.",
+     "type": "Int32",
+     "required": false,
+     "defaultValue": 50000
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "batch",
+    "description": "Run multiple registered commands in one transactional request. Later ops can reference earlier results with \"$<id-or-index>.<jsonPath>\" (e.g. \"$0.instanceId\"; \"$$\" escapes a literal '$'). transactional=true (default) groups every op into one Undo step and reverts all applied ops if any op fails; commands that mutate outside the Undo system (asset/file/settings writes) are rejected unless transactional=false. on_error=abort|continue (continue forces transactional=false); dry_run validates without mutating; time_budget_ms (default 50000) bounds execution \u2014 when exceeded the remaining ops are skipped and a transactional batch rolls back (submit long batches with \"job\": true). Excludes build, switch_build_target, package_*, editor_play/stop/pause, recompile, eval, eval_file, run_script, menu, open_scene/create_scene, async commands (run_tests/list_tests), runtime-only commands, and nested batch.",
+    "properties": {
+     "operations": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "string",
+         "description": "Optional id for referencing this op's result from a later op (\"$<id>.<field>\"). Unique within the batch; must match ^[A-Za-z_][A-Za-z0-9_-]*$ (not purely numeric, no dots)."
+        },
+        "command": {
+         "type": "string",
+         "description": "Name of the registered command to run."
+        },
+        "params": {
+         "type": "string",
+         "description": "Parameters for the command. String values may reference a prior op's result: \"$<id-or-index>.<jsonPath>\"."
+        }
+       },
+       "required": [
+        "command"
+       ],
+       "additionalProperties": false
+      },
+      "description": "Ordered operations to run; each is { id?, command, params }. Max 200."
+     },
+     "transactional": {
+      "type": "boolean",
+      "description": "Group all ops into one Undo step and revert every applied op if any op fails. Default true. Forced false when on_error=continue. Rejects commands whose mutations Undo cannot revert (asset/file/settings writes).",
+      "default": true
+     },
+     "on_error": {
+      "type": "string",
+      "description": "abort (default): stop at the first failing op. continue: run every op, collecting per-op errors (forces transactional=false).",
+      "default": "abort"
+     },
+     "dry_run": {
+      "type": "boolean",
+      "description": "Validate command names, parameters, reference topology and excluded commands without mutating anything.",
+      "default": false
+     },
+     "result_fields": {
+      "type": "string",
+      "description": "Optional per-op result projection: map of op id-or-index -> array of result field paths to keep (context economy)."
+     },
+     "time_budget_ms": {
+      "type": "integer",
+      "description": "Cooperative time budget for the whole batch in milliseconds (default 50000, max 3600000). Checked before each op after the first; when exhausted the remaining ops are skipped and a transactional batch rolls back. Use \"job\": true for long batches.",
+      "default": 50000
+     }
+    },
+    "required": [
+     "operations"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.Batch.BatchCommand.Batch"
+    }
+   }
+  },
+  {
+   "name": "open_scene",
+   "description": "Open an existing scene from the given path.",
+   "tags": [
+    "scenes"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [
+    {
+     "name": "path",
+     "description": "Scene path relative to the authoring root (default Assets/); the Assets/ prefix and the .unity extension are optional.",
+     "type": "String",
+     "required": true,
+     "defaultValue": null
+    },
+    {
+     "name": "additive",
+     "description": "Open additively alongside currently open scenes instead of replacing them.",
+     "type": "Boolean",
+     "required": false,
+     "defaultValue": false
+    }
+   ],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "open_scene",
+    "description": "Open an existing scene from the given path.",
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Scene path relative to the authoring root (default Assets/); the Assets/ prefix and the .unity extension are optional."
+     },
+     "additive": {
+      "type": "boolean",
+      "description": "Open additively alongside currently open scenes instead of replacing them.",
+      "default": false
+     }
+    },
+    "required": [
+     "path"
+    ],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.Scenes.SceneCommands.OpenScene"
+    }
+   }
+  },
+  {
+   "name": "list_open_scenes",
+   "description": "List all currently open scenes with their load/active/dirty state.",
+   "tags": [
+    "scenes"
+   ],
+   "package": "Unity.Pipeline.Editor",
+   "parameters": [],
+   "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "title": "list_open_scenes",
+    "description": "List all currently open scenes with their load/active/dirty state.",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false,
+    "x-command-metadata": {
+     "mainThreadRequired": true,
+     "methodName": "Unity.Pipeline.Editor.Commands.Scenes.SceneCommands.ListOpenScenes"
+    }
+   }
+  }
+ ]
+}

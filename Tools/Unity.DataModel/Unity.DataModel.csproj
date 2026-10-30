@@ -11,4 +11,9 @@
     <Version>0.1.0</Version>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Documents the Unity Editor wrote, that new objects are cloned from (Templates.cs). -->
+    <EmbeddedResource Include="Templates\Unity6000.7.unity" LogicalName="Unity.DataModel.Templates.Unity6000.7.unity" />
+  </ItemGroup>
+
 </Project>

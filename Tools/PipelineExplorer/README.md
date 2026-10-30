@@ -93,6 +93,28 @@ Build Profile** recreates its scene and profile).
     entry), committed as one new workbench revision.
     Limits: objects inside a prefab instance are placed at the instance's root; removing saved
     objects, rotating with the widget and prefab variants aren't supported yet.
+  - **Animations** (`animations.js`, `animplayer.html`, `AnimationEndpoints.cs`; Unity side in
+    `Assets/AnimationViewer`): every clip in the workbench (`GET /api/…/animations` reads each `.anim`
+    and each `.fbx`'s `.meta`: `clipAnimations`, `animationType` 3 = Humanoid; an `.anim` is Humanoid
+    when it has muscle/root curves), played in the `AnimationViewer_WebGL` runtime (built to
+    `Builds/AnimationViewer_WebGL`) from the clip's Pipeline-built content archive. Humanoid clips play
+    on its humanoid character through the Avatar; an `.fbx`'s other clips on the model it imports; a
+    generic `.anim` on a rig built from the transform paths it animates. For those, **Generate a model
+    for this animation** quotes (`POST /api/animations/model-quote`) and, once accepted, runs
+    `unity ai generate` (`POST /api/animations/model`); the open Editor imports the model under
+    `Assets/AnimationViewer/Generated/<clip>/` and packs it (`AnimationViewerSetup.PackModel`) into an
+    archive the player puts on each animated transform. Needs the `unity` CLI, signed in, and the
+    Editor open on this project.
+  - **Co-authoring** (`coauthor.js`, `CoAuthoringEndpoints.cs`, `ClaudeAssistant.cs`; the engine is
+    `../CoAuthoring`, see its README): people and agents edit one scene at the same time with Unity CLI
+    commands, through one queue per workbench, against a shared draft. Click a scene to join it. Others show as
+    cameras with their name in the view (the `CoAuthoring_WebGL` player, built to `Builds/CoAuthoring_WebGL`;
+    the level editor's player until it's built) and in the people list. Moving or dropping things in the view
+    sends commands. The **Hierarchy** panel lists the scene's objects (filter; click selects, double-click
+    frames; a dot in someone's colour shows who changed an object last). The command box takes any command, and
+    failed commands can be resent. **Ask Claude** has Claude make a change with the same commands (headless Claude
+    Code, under this machine's Claude Code sign-in). **Demo** adds five pretend people who place the project's prefabs, each in their own
+    area. **Save** (in the header, or Ctrl+S) makes one commit of everyone's changes.
 - **Unity data model** (`../Unity.DataModel`, endpoints in `DataModelEndpoints.cs`): the C# library
   both editing tabs go through. See its README; tests in `../Unity.DataModel.Tests`
   (`dotnet test Tools/Unity.DataModel.Tests`).

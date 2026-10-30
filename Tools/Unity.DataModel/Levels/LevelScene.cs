@@ -139,6 +139,18 @@ namespace Unity.DataModel.Levels
             return w;
         }
 
+        /// <summary>
+        /// The world pose of a Transform (by its ID or its GameObject's), or of a prefab instance's root; identity
+        /// for anything else (0: the scene's root).
+        /// </summary>
+        public Pose WorldPose(long id)
+        {
+            var cache = new Dictionary<long, Pose>();
+            if (File.Find(id) is PrefabInstance inst) return Pose.Compose(WorldOf(inst.TransformParentId, cache), InstanceLocal(inst));
+            if (File.Find(id) is GameObject go && go.Transform != null) id = go.Transform.FileId;
+            return WorldOf(id, cache);
+        }
+
         /// <summary>Everything placed, with world poses; instances whose prefab is unknown are skipped.</summary>
         public (IReadOnlyList<Placeable> Items, IReadOnlyList<SkippedPlaceable> Skipped) Placeables()
         {

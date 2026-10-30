@@ -77,9 +77,50 @@ namespace Unity.DataModel
 
             var used = new HashSet<long>(gos.Select(g => g.FileId).Concat(instances.Select(d => d.FileId)));
             foreach (var comps in componentsOf.Values) foreach (var c in comps) used.Add(c.FileId);
+            Index(file);
             Others = file.Objects.Where(d => !used.Contains(d.FileId) && !d.IsStripped)
                 .Select(d => new HierarchyNode(d, HierarchyNodeKind.Object, d.Name ?? d.TypeName)).ToList();
         }
+
+        readonly Dictionary<long, HierarchyNode> byId = new Dictionary<long, HierarchyNode>();
+        readonly Dictionary<HierarchyNode, string> paths = new Dictionary<HierarchyNode, string>();
+
+        // Hierarchy paths ("/Root/Child", as the Unity CLI writes them), and each node by its GameObject, Transform or
+        // prefab instance ID (and the instance's stand-in transforms).
+        void Index(UnityFile file)
+        {
+            void Walk(HierarchyNode n, string parent)
+            {
+                var path = parent + "/" + n.Label;
+                paths[n] = path;
+                byId[n.Object.FileId] = n;
+                if (n.Object is GameObject go && go.Transform is { } t) byId[t.FileId] = n;
+                foreach (var c in n.Children) Walk(c, path);
+            }
+            foreach (var r in Roots) Walk(r, "");
+            foreach (var t in file.Objects.OfType<Transform>().Where(t => t.IsStripped))
+                if (byId.TryGetValue(t.PrefabInstanceId, out var inst)) byId[t.FileId] = inst;
+        }
+
+        /// <summary>The node of a GameObject, its Transform, or a prefab instance, or null.</summary>
+        public HierarchyNode? NodeOf(long fileId) => byId.TryGetValue(fileId, out var n) ? n : null;
+
+        /// <summary>"/Root/Child" for a GameObject, Transform or prefab instance, or null.</summary>
+        public string? PathOf(long fileId) => NodeOf(fileId) is { } n ? paths[n] : null;
+
+        /// <summary>
+        /// The objects at a hierarchy path: "/Root/Child" from the scene's root, or "Child" (a name, or a path's
+        /// last parts) anywhere.
+        /// </summary>
+        public IReadOnlyList<HierarchyNode> FindPath(string path)
+        {
+            path = path.Trim();
+            if (path.StartsWith("/")) return paths.Where(kv => kv.Value == path).Select(kv => kv.Key).ToList();
+            return paths.Where(kv => kv.Value == "/" + path || kv.Value.EndsWith("/" + path)).Select(kv => kv.Key).ToList();
+        }
+
+        /// <summary>Every node, depth first.</summary>
+        public IEnumerable<HierarchyNode> All => paths.Keys;
 
         readonly Dictionary<long, IReadOnlyList<UnityObject>> componentsOf = new Dictionary<long, IReadOnlyList<UnityObject>>();
 

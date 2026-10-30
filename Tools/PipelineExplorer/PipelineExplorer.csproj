@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Pipeline.Client\Pipeline.Client.csproj" />
     <ProjectReference Include="..\Unity.DataModel\Unity.DataModel.csproj" />
+    <ProjectReference Include="..\CoAuthoring\CoAuthoring.csproj" />
   </ItemGroup>
 
 </Project>

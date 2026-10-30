@@ -74,7 +74,9 @@ var playerDir = WebGlPlayer.FindBuild(app.Environment.ContentRootPath);
 var levelPlayerDir = WebGlPlayer.FindBuild(app.Environment.ContentRootPath, WebGlPlayer.LevelEditorFolder, "PIPELINE_EXPLORER_LEVEL_PLAYER");
 // The scene viewer's runtime (SceneViewer_WebGL build profile), at /scene-player.
 var scenePlayerDir = WebGlPlayer.FindBuild(app.Environment.ContentRootPath, WebGlPlayer.SceneViewerFolder, "PIPELINE_EXPLORER_SCENE_PLAYER");
-foreach (var (dir, at) in new[] { (playerDir, "/player"), (levelPlayerDir, "/level-player"), (scenePlayerDir, "/scene-player") })
+// The co-authoring runtime (CoAuthoring_WebGL build profile: the level editor with presence), at /coauthor-player.
+var coauthorPlayerDir = WebGlPlayer.FindBuild(app.Environment.ContentRootPath, WebGlPlayer.CoAuthoringFolder, "PIPELINE_EXPLORER_COAUTHOR_PLAYER");
+foreach (var (dir, at) in new[] { (playerDir, "/player"), (levelPlayerDir, "/level-player"), (scenePlayerDir, "/scene-player"), (coauthorPlayerDir, "/coauthor-player") })
 {
     if (dir is null) continue;
     var types = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
@@ -347,6 +349,10 @@ rev.MapPost("/save", async (Pipelines p, string wb, string rev, SaveRequest body
 // Edits through the Unity data model (Inspector, Level editor): DataModelEndpoints.cs.
 rev.MapDataModel((c, wb, given, ct) => WorkbenchBranchAsync(c, wb, given, ct));
 
+// Co-authoring: commands from people and agents, one queue per workbench, saved as one commit (CoAuthoringEndpoints.cs).
+api.MapCoAuthoring((c, wb, given, ct) => WorkbenchBranchAsync(c, wb, given, ct),
+    Path.GetFullPath(Path.Combine(app.Environment.ContentRootPath, "..", "..")));
+
 // Publish the workbench's changes to the git branch it was made from (POST …/publishes). Reads that branch's
 // latest commit before and after, so the page can say what landed. Pushes under Pipeline's git token.
 api.MapPost("/workbenches/{wb}/publish", async (Pipelines p, string wb, PublishRequest body, CancellationToken ct) =>
@@ -413,7 +419,10 @@ envRev.MapGet("/preview", async (Pipelines p, string wb, string env, string rev,
 // Which WebGL build files the player page should load (names vary with the build's compression).
 api.MapGet("/player", () => WebGlPlayer.Describe(playerDir));
 api.MapGet("/level-player", () => WebGlPlayer.Describe(levelPlayerDir, "level-player", WebGlPlayer.LevelEditorFolder, "LevelEditor_WebGL"));
+api.MapGet("/coauthor-player", () => WebGlPlayer.Describe(coauthorPlayerDir, "coauthor-player", WebGlPlayer.CoAuthoringFolder, "CoAuthoring_WebGL"));
 api.MapGet("/scene-player", () => WebGlPlayer.Describe(scenePlayerDir, "scene-player", WebGlPlayer.SceneViewerFolder, "SceneViewer_WebGL"));
+// The Animations tab: its clip list, player (AnimationViewer_WebGL) and generated models: AnimationEndpoints.cs.
+app.MapAnimations(api);
 
 // One call for "preview this asset in the player": a content archive (.ca) built by the pipeline for
 // the player's platform, and the URL the player downloads it from. Finds or creates the workbench's
@@ -647,6 +656,7 @@ static class WebGlPlayer
     public const string ContentImporter = "Unity.Pipeline.Samples.ScenePreview.Importer.PreviewContentImporter";
     const string BuildFolder = "ScenePreview_WebGL";
     public const string LevelEditorFolder = "LevelEditor_WebGL";
+    public const string CoAuthoringFolder = "CoAuthoring_WebGL";
     public const string SceneViewerFolder = "SceneViewer_WebGL";
 
     /// <summary>

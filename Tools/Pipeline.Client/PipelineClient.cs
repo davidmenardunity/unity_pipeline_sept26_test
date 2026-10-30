@@ -758,9 +758,9 @@ public sealed class PipelineClient : IDisposable
     /// <summary>Server-side search by name; an empty query lists every asset (Assets/ and Packages/).</summary>
     public async Task<IReadOnlyList<SearchHit>> SearchAsync(string workbenchId, string revision, string query,
         CancellationToken ct = default) =>
-        (await JsonAsync<Page<SearchHit>>(HttpMethod.Get,
+        (await JsonAsync<SearchPage>(HttpMethod.Get,
             $"{Rev(workbenchId, revision)}/asset-search?q={Uri.EscapeDataString(query)}",
-            timeout: TimeSpan.FromSeconds(120), ct: ct).ConfigureAwait(false)).Items;
+            timeout: TimeSpan.FromSeconds(120), ct: ct).ConfigureAwait(false)) is var page && (page.Items ?? page.Results) is { } hits ? hits : [];
 
     public async Task<string?> ResolveGuidAsync(string workbenchId, string revision, string path,
         IProgress<string>? progress = null, CancellationToken ct = default)

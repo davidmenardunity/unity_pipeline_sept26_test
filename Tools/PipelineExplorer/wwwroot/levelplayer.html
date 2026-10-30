@@ -54,7 +54,10 @@
     addEventListener("contextmenu", (e) => e.preventDefault());
 
     (async () => {
-      const info = await (await fetch("/api/level-player", { headers: { "X-Pipeline-Explorer": "1" } })).json();
+      // ?player=coauthor: the co-authoring build (CoAuthoring_WebGL), else the level editor's.
+      const get = async (name) => (await fetch(`/api/${name}`, { headers: { "X-Pipeline-Explorer": "1" } })).json();
+      let info = new URLSearchParams(location.search).get("player") === "coauthor" ? await get("coauthor-player") : null;
+      if (!info?.available) info = await get("level-player");
       if (!info.available) { send({ type: "player-error", message: info.message }); return; }
       await new Promise((ok, fail) => {
         const s = document.createElement("script");

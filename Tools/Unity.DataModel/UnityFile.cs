@@ -20,9 +20,9 @@ namespace Unity.DataModel
     /// File.WriteAllText("Level.unity", scene.ToText());
     /// </code>
     /// </example>
-    public sealed class UnityFile
+    public sealed partial class UnityFile
     {
-        readonly YamlFile yaml;
+        YamlFile yaml = null!;
         readonly Dictionary<long, UnityObject> byId = new Dictionary<long, UnityObject>();
         readonly Dictionary<(int Line, int Start), ValueChange> values = new Dictionary<(int, int), ValueChange>();
         // Structural changes, written out by ToText.
@@ -33,8 +33,23 @@ namespace Unity.DataModel
 
         UnityFile(string text)
         {
+            OriginalText = text;
+            Load(text);
+        }
+
+        // Read text as the file's current state. Structural changes (UnityFile.Structure.cs) write the text and
+        // read it again: objects found before then are stale (Generation tells), and must be found again.
+        void Load(string text)
+        {
             Text = text;
             yaml = UnityYamlParser.Parse(text);
+            byId.Clear();
+            values.Clear();
+            addedModifications.Clear();
+            addedDocuments.Clear();
+            addedRoots.Clear();
+            hierarchy = null;
+            Generation++;
             foreach (var doc in yaml.Documents)
             {
                 var obj = UnityObject.Create(this, doc);
@@ -42,6 +57,9 @@ namespace Unity.DataModel
             }
             Objects = yaml.Documents.Select(d => byId[d.FileId]).Distinct().ToList();
         }
+
+        /// <summary>Bumped each time the file is read again after a structural change.</summary>
+        public int Generation { get; private set; }
 
         /// <summary>Read a file. It must be text (Asset Serialization: Force Text); see <see cref="IsYaml"/>.</summary>
         public static UnityFile Parse(string text)
@@ -52,14 +70,20 @@ namespace Unity.DataModel
 
         public static bool IsYaml(string text) => text.StartsWith("%YAML");
 
-        /// <summary>The text that was read.</summary>
-        public string Text { get; }
+        /// <summary>
+        /// The text the objects were read from: the file as read, or as it was after the last structural change
+        /// (<see cref="OriginalText"/> is what was first read).
+        /// </summary>
+        public string Text { get; private set; } = "";
+
+        /// <summary>The text that was first read.</summary>
+        public string OriginalText { get; }
 
         public string LineEnding => yaml.Eol;
         public IReadOnlyList<string> Lines => yaml.Lines;
 
         /// <summary>Every object, in file order.</summary>
-        public IReadOnlyList<UnityObject> Objects { get; }
+        public IReadOnlyList<UnityObject> Objects { get; private set; } = new List<UnityObject>();
 
         public UnityObject? Find(long fileId) => byId.TryGetValue(fileId, out var o) ? o : null;
         public T? Find<T>(long fileId) where T : UnityObject => Find(fileId) as T;
@@ -73,9 +97,9 @@ namespace Unity.DataModel
 
         // ── changes ─────────────────────────────────────────────────────────
 
-        public bool HasChanges => values.Count > 0 || addedModifications.Count > 0 || addedDocuments.Count > 0;
+        public bool HasChanges => values.Count > 0 || addedModifications.Count > 0 || addedDocuments.Count > 0 || Text != OriginalText;
 
-        /// <summary>The values changed so far (each value once, with its latest text).</summary>
+        /// <summary>The values changed since the text was last read (each value once, with its latest text).</summary>
         public IReadOnlyList<ValueChange> Changes => values.Values.OrderBy(v => v.Node.Line).ThenBy(v => v.Node.Start).ToList();
 
         /// <summary>Object IDs added with <see cref="AddPrefabInstance"/>, in order.</summary>
@@ -83,6 +107,8 @@ namespace Unity.DataModel
 
         internal void SetRaw(UnityObject owner, YamlNode node, string raw)
         {
+            if (owner.Generation != Generation)
+                throw new InvalidOperationException($"{owner.TypeName} &{owner.FileId} was found before the file changed structure; find it again.");
             if (node.ReadOnly || node.Kind != YamlNodeKind.Scalar)
                 throw new InvalidOperationException($"{owner.TypeName} &{owner.FileId}: {node.Path} spans several lines or holds other values, so it can't be set in place.");
             if (raw.IndexOf('\n') >= 0 || raw.IndexOf('\r') >= 0)
@@ -158,7 +184,7 @@ namespace Unity.DataModel
         /// <summary>The file's text with every change.</summary>
         public string ToText()
         {
-            if (!HasChanges) return Text;
+            if (values.Count == 0 && addedModifications.Count == 0 && addedDocuments.Count == 0) return Text;
             var edits = new List<TextEdit>();
             foreach (var v in values.Values) edits.Add(TextEdit.Replace(v.Node.Line, v.Node.Start, v.Node.End, v.Node.Raw));
 
@@ -196,6 +222,7 @@ namespace Unity.DataModel
         /// <summary>Forget every change.</summary>
         public void Revert()
         {
+            if (Text != OriginalText) { Load(OriginalText); return; }
             foreach (var v in values.Values) v.Node.Raw = v.Node.OriginalRaw;
             values.Clear();
             addedModifications.Clear();

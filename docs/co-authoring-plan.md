@@ -1,6 +1,6 @@
 # Co-authoring tab: plan
 
-Status: plan only, nothing built yet (2026-10-30).
+Status: built (2026-10-30). See Tools/CoAuthoring/README.md; this was the plan.
 
 ## What we're building
 

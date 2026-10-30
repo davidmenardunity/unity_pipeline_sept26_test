@@ -1,0 +1,21 @@
+{
+    "name": "Unity.Pipeline.AnimationViewer.Editor",
+    "rootNamespace": "Unity.Pipeline.AnimationViewer.Editor",
+    "references": [
+        "Unity.Pipeline.AnimationViewer",
+        "Unity.Pipeline.Samples.ScenePreview.Importer",
+        "Unity.RenderPipelines.Universal.Runtime",
+        "Unity.RenderPipelines.Core.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

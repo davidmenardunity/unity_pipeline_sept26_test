@@ -121,6 +121,8 @@ namespace Unity.Pipeline.LevelEditor
             m_Prototypes = new GameObject("Prototypes").transform;
             m_Prototypes.gameObject.SetActive(false);
             BuildGizmo();
+            // Co-authoring: others' cameras in the scene, and this one's reported to the page.
+            gameObject.AddComponent<LevelEditorPresence>().Init(m_Camera, m_AxisCenter);
         }
 
         void Start() => Send(new Report { type = "ready", ok = true });
