@@ -554,6 +554,8 @@ api.MapMethods("/collab/{**path}", ["GET", "POST", "PUT", "PATCH", "DELETE"], as
     var rest = path.StartsWith("collaboration/v1/", StringComparison.Ordinal) ? path["collaboration/v1/".Length..] : path;
     var (status, bytes) = await p.Default.CollaborationAsync(new HttpMethod(request.Method), rest + request.QueryString,
         body, request.ContentType, ct);
+    if (status == 200 && request.Method == "POST" && rest.EndsWith("/annotations-search", StringComparison.Ordinal))
+        bytes = await CollabSearch.WithAttachmentsAsync(p.Default, rest[..^"annotations-search".Length], bytes, ct);
     response.StatusCode = status;
     if (bytes.Length > 0) response.ContentType = "application/json";
     await response.Body.WriteAsync(bytes, ct);
@@ -1053,5 +1055,40 @@ static class Text
             catch (DecoderFallbackException) { }
         }
         return head.Length == 0;
+    }
+}
+
+/// <summary>
+/// Collaboration's annotations-search answers without each comment's attachments and camera (seen
+/// 2026-10-30): the players' pins and drawings, and the page's "pin"/"drawing" chips, would all be lost on
+/// reading. Each result that lacks them gets them from the comment itself (GET annotations/{id}).
+/// </summary>
+static class CollabSearch
+{
+    static readonly string[] Fields = ["attachments", "camera", "localSpace", "time"];
+
+    public static async Task<byte[]> WithAttachmentsAsync(PipelineClient c, string projectPath, byte[] bytes, CancellationToken ct)
+    {
+        System.Text.Json.Nodes.JsonNode? root;
+        try { root = System.Text.Json.Nodes.JsonNode.Parse(bytes); }
+        catch (System.Text.Json.JsonException) { return bytes; }
+        var list = (root?["results"] ?? root?["annotations"]) as System.Text.Json.Nodes.JsonArray;
+        var missing = list?.OfType<System.Text.Json.Nodes.JsonObject>()
+            .Where(a => a["attachments"] is null && a["annotationId"]?.GetValue<string>() is { Length: > 0 }).ToList();
+        if (missing is not { Count: > 0 }) return bytes;
+        await Parallel.ForEachAsync(missing, new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = ct }, async (a, t) =>
+        {
+            var (status, full) = await c.CollaborationAsync(HttpMethod.Get, $"{projectPath}annotations/{a["annotationId"]!.GetValue<string>()}", null, null, t);
+            if (status != 200) return;
+            try
+            {
+                if (System.Text.Json.Nodes.JsonNode.Parse(full) is not System.Text.Json.Nodes.JsonObject one) return;
+                lock (a)
+                    foreach (var f in Fields)
+                        if (a[f] is null && one[f] is { } v) a[f] = v.DeepClone();
+            }
+            catch (System.Text.Json.JsonException) { /* keep the result as searched */ }
+        });
+        return Encoding.UTF8.GetBytes(root!.ToJsonString());
     }
 }
