@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "generator": {
+    "name": "unity-ai",
+    "version": "0.1.0-alpha.8"
+  },
+  "modelId": "model3d-meshy-rigging",
+  "orgId": "3574429749338",
+  "jobId": "01a18dd6-b58c-769f-b563-adff199b659a",
+  "assetId": "01a18dd7-5b46-74d6-a877-808dd84dda0d",
+  "pointsCost": 3,
+  "createdAt": "2026-10-30T17:24:24.3446405+00:00",
+  "modelName": "Meshy Rigging",
+  "params": {
+    "targetFormat": "fbx",
+    "height_meters": 1.75,
+    "reference_model": "01a18dd6-b104-7827-a6df-836535d37fff"
+  },
+  "inputs": [
+    {
+      "param": "reference_model",
+      "file": "Character_Model.glb",
+      "assetId": "01a18dd6-b104-7827-a6df-836535d37fff"
+    }
+  ],
+  "output": {
+    "index": 1,
+    "count": 1,
+    "generationId": "01a18dd6-b58c-769f-b563-adff199b659a"
+  }
+}

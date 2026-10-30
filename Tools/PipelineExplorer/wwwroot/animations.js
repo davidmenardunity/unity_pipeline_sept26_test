@@ -1,8 +1,10 @@
 // Animations: every animation clip in the workbench (.anim files and the clips an .fbx imports), previewed in
-// the animation viewer's WebGL runtime (AnimationViewer_WebGL). Humanoid clips play on its humanoid character
-// (retargeted through the Avatar); an .fbx's other clips play on the model they came with; a generic .anim
-// plays on a rig built from the transforms it animates, with boxes for parts until a model is generated for it
-// with Unity AI (the local `unity ai` CLI; the open Editor packs it). Server side: AnimationEndpoints.cs.
+// the animation viewer's WebGL runtime (AnimationViewer_WebGL), on the project's models that can play it: the
+// server matches each clip against every .fbx (Humanoid clips: any Humanoid model; others: the transform paths
+// they animate, also under another root name). The model picker swaps between them. With no compatible model,
+// a Humanoid clip plays on the viewer's own character; a generic .anim on a rig built from its paths, with boxes
+// until a model is generated for it with Unity AI (the local `unity ai` CLI; the open Editor packs it).
+// Server side: AnimationEndpoints.cs.
 "use strict";
 
 (() => {
@@ -14,12 +16,25 @@
     paused: false, speed: 1,
     quote: null, prompt: "", gen: null,   // the model generation for the selected clip
     showOp: null,
+    picks: new Map(),        // clip -> the model picked for it (while the page is open)
+    playerVersion: 0,        // 2+: the player takes a model from the project (mode "model")
   };
   let viewer = null;
   const keyOf = (c) => `${c.path}#${c.name}`;
   const modelFor = (c) => [...AV.generated].reverse().find((g) => g.clip === keyOf(c)) ?? null;
 
-  App.register({ id: "animations", name: "Animations", desc: "Every animation in the workbench, previewed on a humanoid character, or on a model generated for it." });
+  App.register({ id: "animations", name: "Animations", desc: "Every animation in the workbench, previewed on the project's models that can play it." });
+
+  // What a clip can play on: compatible models first (its own first), then the viewer's character (Humanoid
+  // clips) or the rig built from its paths (generic .anim).
+  function choices(c) {
+    const list = (c.plays ?? []).map((m) => ({ id: `model:${m.model}`, m,
+      label: `${m.name}${m.own ? " (its own model)" : ""}${!m.humanoid && !m.own && m.of ? ` · ${m.matched}/${m.of} paths` : ""}${m.modelRoot ? " · root renamed" : ""}` }));
+    if (c.humanoid) list.push({ id: "character", label: "The viewer's humanoid character" });
+    else if (c.source === "anim") list.push({ id: "rig", label: modelFor(c) ? "Rig from its paths, generated model" : "Rig from its paths (boxes)" });
+    return list;
+  }
+  const pickOf = (c) => { const all = choices(c); return all.find((x) => x.id === AV.picks.get(keyOf(c))) ?? all[0] ?? null; };
 
   App.on("revision", ({ wb, revision }) => {
     $("avRev").textContent = revision ? `rev ${revision}` : "";
@@ -43,7 +58,8 @@
   });
 
   function fromRuntime(r) {
-    if (r.type === "playing") {
+    if (r.type === "ready") { AV.playerVersion = r.version || 1; renderHead(); }
+    else if (r.type === "playing") {
       AV.playing = r;
       AV.showOp?.step("play", "done", r.target).done(`${r.clip} on ${r.target}`);
     } else if (r.type === "error") {
@@ -92,11 +108,14 @@
 
   function row(c) {
     const len = c.length ? `${c.length.toFixed(2)} s` : c.frames ? `${c.frames} frames` : "";
+    const n = c.plays?.length ?? 0;
+    const models = `${n} model${n === 1 ? "" : "s"}`;
     return h("li", {}, h("button", { class: "item anim-row", type: "button", "aria-current": AV.selected && keyOf(AV.selected) === keyOf(c) ? "true" : null,
-      title: `${c.path}${c.source === "fbx" ? ` (clip ${c.name})` : ""}`, onclick: () => select(c) },
+      title: `${c.path}${c.source === "fbx" ? ` (clip ${c.name})` : ""}\nplays on ${models} in the project`, onclick: () => select(c) },
       h("span", { class: `dot ${RIG[c.rig] ?? ""}`, title: c.rig }),
       h("span", { class: "n" }, c.name, h("span", { class: "muted small" }, ` ${fileName(c.path)}`)),
-      modelFor(c) ? h("span", { class: "badge", title: "A model was generated for it" }, "model") : null,
+      n ? h("span", { class: "badge", title: `Plays on ${models} in the project` }, models)
+        : modelFor(c) ? h("span", { class: "badge", title: "A model was generated for it" }, "generated") : null,
       h("span", { class: "muted small num" }, len)));
   }
 
@@ -113,21 +132,33 @@
     await show(c);
   }
 
-  // Have Pipeline build the clip's archive (an .anim, or the whole .fbx), then play it in the runtime.
+  // Have Pipeline build the clip's archive (an .anim, or the whole .fbx) and the picked model's, then play it.
   async function show(c) {
     if (!c.guid) { banner(`${fileName(c.path)} has no .meta GUID, so Pipeline can't build it.`); return; }
-    const wb = AV.wb, rev = AV.rev, model = modelFor(c);
+    const wb = AV.wb, rev = AV.rev, model = modelFor(c), pick = pickOf(c);
+    const m = pick?.m && AV.playerVersion >= 2 ? pick.m : null;
     AV.showOp?.stop("Another clip was picked.");
-    const op = AV.showOp = Ops.start({ title: `Preview ${c.name}`, kind: "anim-show", asset: c.path,
-      steps: [{ id: "archive", label: "Pipeline builds the clip's WebGL archive" }, { id: "play", label: "Load and play it" }] });
+    const op = AV.showOp = Ops.start({ title: `Preview ${c.name}${m ? ` on ${m.name}` : ""}`, kind: "anim-show", asset: c.path,
+      steps: [{ id: "archive", label: "Pipeline builds the clip's WebGL archive" },
+        ...(m && m.guid !== c.guid ? [{ id: "model", label: `Pipeline builds ${m.name}'s archive` }] : []),
+        { id: "play", label: "Load and play it" }] });
     renderStage();
     try {
       const r = await Archives.build(wb, rev, c.guid, op);
       if (AV.showOp !== op) return;
+      let mr = r;
+      if (m && m.guid !== c.guid) {
+        // Archives.build narrates on an "archive" step: point it at this op's "model" step.
+        const narrate = { id: op.id, step: (id, ...a) => op.step(id === "archive" ? "model" : id, ...a), note: (t) => op.note(t) };
+        mr = await Archives.build(wb, rev, m.guid, narrate);
+        if (AV.showOp !== op) return;
+      }
       op.step("play", "active");
-      // humanoid: the character; own: the model the .fbx imports; rig: built from the clip's paths (+ a generated model).
-      const mode = c.humanoid ? "humanoid" : c.source === "fbx" ? "own" : "rig";
-      rt("Show", { key: c.guid, url: r.url, clip: c.name, mode, paths: c.paths,
+      if (m) rt("Show", { key: c.guid, url: r.url, clip: c.name, mode: "model", paths: c.paths, modelKey: m.guid, modelUrl: mr.url,
+        modelRoot: m.modelRoot ?? "", clipRoot: m.clipRoot ?? "" });
+      // An older player, or nothing compatible: the character, the clip's own .fbx, or a rig from its paths (+ a generated model).
+      else rt("Show", { key: c.guid, url: r.url, clip: c.name, paths: c.paths,
+        mode: c.humanoid || pick?.id === "character" ? "humanoid" : c.source === "fbx" ? "own" : "rig",
         modelKey: model?.archive ?? "", modelUrl: model ? `/api/animations/archive/${enc(model.archive)}` : "" });
       rt("SetSpeed", { speed: AV.paused ? 0 : AV.speed });
     } catch (e) { if (AV.showOp === op) op.fail(e); }
@@ -194,11 +225,24 @@
     put($("avHead"),
       h("div", { class: "path" }, c ? [folderOf(c.path) + "/", h("b", {}, fileName(c.path)), c.source === "fbx" ? ` · ${c.name}` : ""] : "No clip selected"),
       h("span", { class: "grow" }),
+      c ? pickerEl(c) : null,
       h("button", { class: "btn small", disabled: !AV.playing ? true : null, onclick: () => { AV.paused = !AV.paused; setSpeed(null); } }, AV.paused ? "Play" : "Pause"),
       h("select", { class: "btn small", "aria-label": "Speed", onchange: (e) => setSpeed(Number(e.target.value)) },
         [0.25, 0.5, 1, 2].map((s) => h("option", { value: s, selected: s === AV.speed ? true : null }, `${s}×`))),
       h("button", { class: "btn small", disabled: !AV.playing ? true : null, onclick: () => rt("Frame") }, "Frame"),
       h("span", { class: "muted small" }, "Drag: orbit · Wheel: zoom"));
+  }
+
+  // The models this clip can play on: swap to try it on another rig. Remembered per clip while the page is open.
+  function pickerEl(c) {
+    const all = choices(c), pick = pickOf(c);
+    if (!all.length) return null;
+    const old = AV.playerVersion > 0 && AV.playerVersion < 2;
+    return h("select", { class: "btn small anim-pick", "aria-label": "Model",
+      title: old ? "This player build predates the model picker: rebuild AnimationViewer_WebGL to swap models" : "The models in the project that can play this clip",
+      disabled: old || all.length < 2 ? true : null,
+      onchange: (e) => { AV.picks.set(keyOf(c), e.target.value); renderDetails(); show(c); } },
+      all.map((x) => h("option", { value: x.id, selected: x.id === pick?.id ? true : null }, x.label)));
   }
 
   function renderOverlay() {
@@ -224,7 +268,9 @@
     const p = AV.playing && AV.playing.clip === c.name ? AV.playing : null;
     const len = p?.length ? `${p.length.toFixed(2)} s` : c.length ? `${c.length.toFixed(2)} s` : c.frames ? `${c.frames} frames` : "—";
     const model = modelFor(c);
-    const on = c.humanoid ? "the humanoid character (retargeted through its Avatar)"
+    const pick = pickOf(c);
+    const on = pick?.m ? `${pick.m.model}${pick.m.humanoid ? " (retargeted through its Avatar)" : pick.m.modelRoot ? ` (its ${pick.m.modelRoot} renamed ${pick.m.clipRoot})` : ""}`
+      : c.humanoid ? "the viewer's humanoid character (retargeted through its Avatar)"
       : c.source === "fbx" ? `the model ${fileName(c.path)} imports`
       : model ? `a rig built from its ${c.paths.length} animated transform${c.paths.length === 1 ? "" : "s"}, with the generated model on each`
       : `a rig built from its ${c.paths.length} animated transform${c.paths.length === 1 ? "" : "s"} (boxes until a model is generated)`;
@@ -235,12 +281,14 @@
           h("dt", {}, "File"), h("dd", { class: "mono" }, c.path),
           h("dt", {}, "Rig"), h("dd", {}, c.rig, c.source === "fbx" ? h("span", { class: "muted small" }, " (ModelImporter animationType)") : null),
           h("dt", {}, "Length"), h("dd", {}, len, c.loop ? " · loops" : ""),
-          h("dt", {}, "Plays on"), h("dd", {}, p ? `${p.target}` : on))),
+          h("dt", {}, "Plays on"), h("dd", {}, p ? `${p.target}` : on),
+          h("dt", {}, "Compatible"), h("dd", {}, c.plays?.length ? `${c.plays.length} model${c.plays.length === 1 ? "" : "s"} in the project (pick one above the view)` : "no model in the project"))),
       !c.humanoid && c.paths.length ? h("div", { class: "section", style: "padding:0 16px 12px" },
         h("h3", { class: "small muted" }, "Animated transforms"),
         h("ul", { class: "anim-paths mono small" }, c.paths.slice(0, 40).map((x) => h("li", {}, x)), c.paths.length > 40 ? h("li", {}, `+${c.paths.length - 40} more`) : null)) : null,
-      c.humanoid ? null : generateEl(c, model));
-    if (!c.humanoid) renderGenButtons(c);
+      // Generating is the fallback: only for a generic .anim that no model in the project can play.
+      c.humanoid || c.plays?.length ? null : generateEl(c, model));
+    if (!c.humanoid && !c.plays?.length) renderGenButtons(c);
   }
 
   function generateEl(c, model) {

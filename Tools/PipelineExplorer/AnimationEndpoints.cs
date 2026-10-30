@@ -21,7 +21,7 @@ static class AnimationEndpoints
     const string ModelId = "model3d-meshy-7-1-text-to-3d";
     static readonly string[] ModelParams = ["targetFormat=fbx", "target_polycount=8000", "enable_pbr=false"];
 
-    static readonly ConcurrentDictionary<string, Task<List<Clip>>> Lists = new();
+    static readonly ConcurrentDictionary<string, Task<Index>> Lists = new();
     static readonly SemaphoreSlim Generating = new(1, 1);
 
     public static void MapAnimations(this WebApplication app, RouteGroupBuilder api)
@@ -54,7 +54,11 @@ static class AnimationEndpoints
             var key = $"{wb}|{rev}";
             if (refresh == true) Lists.TryRemove(key, out _);
             var task = Lists.GetOrAdd(key, _ => ListAsync(p.Default, wb, rev));
-            try { return Results.Ok(new { clips = await task.WaitAsync(ct), generated = Generated(project) }); }
+            try
+            {
+                var index = await task.WaitAsync(ct);
+                return Results.Ok(new { clips = index.Clips, models = index.Models, generated = Generated(project) });
+            }
             catch { Lists.TryRemove(key, out _); throw; }
         });
 
@@ -141,9 +145,26 @@ static class AnimationEndpoints
     // ── listing ────────────────────────────────────────────────────────────
 
     record Clip(string Path, string? Guid, string Name, string Source, string Rig, bool Humanoid, bool Legacy,
-        double? Length, int? Frames, bool Loop, IReadOnlyList<string> Paths);
+        double? Length, int? Frames, bool Loop, IReadOnlyList<string> Paths)
+    {
+        // The project's models that can play it, best first (the clip's own model first).
+        public List<ModelMatch> Plays { get; set; } = [];
+    }
 
-    static async Task<List<Clip>> ListAsync(PipelineClient c, string wb, string rev)
+    // A model (an .fbx) and the transform paths Unity gives it.
+    record Model(string Path, string? Guid, string Name, string Rig, bool Humanoid, int Nodes)
+    {
+        [System.Text.Json.Serialization.JsonIgnore] public HashSet<string> Paths { get; init; } = [];
+        [System.Text.Json.Serialization.JsonIgnore] public HashSet<string> Bones { get; init; } = [];
+    }
+
+    // A model that can play a clip: how many of the clip's paths it has, and, when the clip's root transform has
+    // another name in the model ("Dog_001_rig" → "Tiger_001_rig"), the rename that makes the clip bind.
+    record ModelMatch(string Model, string? Guid, string Name, int Matched, int Of, string? ClipRoot, string? ModelRoot, bool Own, bool Humanoid);
+
+    record Index(List<Clip> Clips, List<Model> Models);
+
+    static async Task<Index> ListAsync(PipelineClient c, string wb, string rev)
     {
         var files = new ConcurrentBag<string>();
         var gate = new SemaphoreSlim(8);
@@ -165,7 +186,9 @@ static class AnimationEndpoints
         }
         await Walk("Assets");
 
+        // Each .anim and .fbx once: clips from both, and every .fbx's hierarchy (it's what a clip binds to).
         var clips = new ConcurrentBag<Clip>();
+        var models = new ConcurrentBag<Model>();
         await Parallel.ForEachAsync(files, new ParallelOptions { MaxDegreeOfParallelism = 8 }, async (path, ct) =>
         {
             var meta = await TextAsync(c, wb, rev, path + ".meta", ct);
@@ -173,11 +196,63 @@ static class AnimationEndpoints
             if (path.EndsWith(".anim", StringComparison.OrdinalIgnoreCase))
             {
                 if (await TextAsync(c, wb, rev, path, ct) is { } text) clips.Add(Anim(path, guid, text));
+                return;
             }
-            else if (meta is not null)
-                foreach (var clip in Fbx(path, guid, meta)) clips.Add(clip);
+            if (meta is null) return;
+            foreach (var clip in Fbx(path, guid, meta)) clips.Add(clip);
+            try
+            {
+                var preserve = Regex.IsMatch(meta, @"^\s*preserveHierarchy: 1", RegexOptions.Multiline);
+                var nodes = FbxHierarchy.Read(await c.GetFileAsync(wb, rev, path, null, ct), preserve);
+                var type = Regex.Match(meta, @"^\s*animationType: (\d)", RegexOptions.Multiline) is { Success: true } t ? t.Groups[1].Value : "0";
+                models.Add(new Model(path, guid, Path.GetFileNameWithoutExtension(path),
+                    type switch { "1" => "Legacy", "2" => "Generic", "3" => "Humanoid", _ => "None" }, type == "3", nodes.Count)
+                {
+                    Paths = nodes.Select(n => n.Path).ToHashSet(),
+                    Bones = nodes.Where(n => n.Type != "Mesh").Select(n => n.Path).ToHashSet(),
+                });
+            }
+            catch (Exception e) when (e is PipelineApiException or ArgumentException or IndexOutOfRangeException) { /* not a model we can read */ }
         });
-        return clips.OrderBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.Name).ToList();
+
+        var modelList = models.OrderBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ToList();
+        var byPath = modelList.ToDictionary(x => x.Path);
+        foreach (var clip in clips)
+        {
+            // What the clip animates: an .anim says; an .fbx clip animates its own model's skeleton.
+            var own = byPath.GetValueOrDefault(clip.Path);
+            var paths = clip.Source == "anim" ? clip.Paths.ToHashSet() : own?.Bones ?? [];
+            clip.Plays = modelList.Select(m => Compatible(clip, paths, m)).Where(x => x is not null).Select(x => x!)
+                .OrderByDescending(x => x.Own).ThenByDescending(x => x.Of == 0 ? 1 : (double)x.Matched / x.Of).ThenBy(x => x.Name).ToList();
+        }
+        return new Index(clips.OrderBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.Name).ToList(), modelList);
+    }
+
+    // Humanoid clips play on any Humanoid model (the Avatar retargets). Other clips need the transforms they
+    // animate, by path: as is, or under another root name (the clip's first path segment renamed). At least half.
+    static ModelMatch? Compatible(Clip clip, HashSet<string> paths, Model m)
+    {
+        var own = m.Path == clip.Path;
+        if (clip.Humanoid)
+            return m.Humanoid ? new ModelMatch(m.Path, m.Guid, m.Name, 0, 0, null, null, own, true) : null;
+        if (own) return new ModelMatch(m.Path, m.Guid, m.Name, paths.Count, paths.Count, null, null, true, false);
+        if (paths.Count == 0) return null;
+        var best = paths.Count(m.Paths.Contains);
+        string? from = null, to = null;
+        // Rooted: "A/x/y" in the clip against "B/x/y" in the model.
+        static string Root(string p) => p.Split('/')[0];
+        static string Rest(string p) => p.Contains('/') ? p[(p.IndexOf('/') + 1)..] : "";
+        foreach (var cr in paths.Select(Root).Distinct())
+        {
+            var rests = paths.Where(p => Root(p) == cr).Select(Rest).ToHashSet();
+            if (rests.Count < 2) continue;
+            foreach (var mr in m.Paths.Select(Root).Distinct().Where(r => r != cr))
+            {
+                var n = m.Paths.Where(p => Root(p) == mr).Select(Rest).Count(rests.Contains);
+                if (n > best) (best, from, to) = (n, cr, mr);
+            }
+        }
+        return best * 2 >= paths.Count && best > 0 ? new ModelMatch(m.Path, m.Guid, m.Name, best, paths.Count, from, to, false, false) : null;
     }
 
     static async Task<string?> TextAsync(PipelineClient c, string wb, string rev, string path, CancellationToken ct)

@@ -78,8 +78,10 @@ public sealed class Catalog
                 var name = AssemblyName.GetAssemblyName(file);
                 using var probe = new System.Reflection.PortableExecutable.PEReader(File.OpenRead(file));
                 if (!probe.HasMetadata || !ReferencesDataModel(probe)) continue;
+                // Loaded from a copy of its bytes: the file stays free for the Editor to compile again.
                 var context = new CommandLoadContext(file);
-                added += AddCustom(context.LoadFromAssemblyPath(Path.GetFullPath(file)));
+                using var image = new MemoryStream(File.ReadAllBytes(file));
+                added += AddCustom(context.LoadFromStream(image));
             }
             catch (Exception e) when (e is BadImageFormatException or FileLoadException or IOException or ReflectionTypeLoadException)
             {
@@ -103,9 +105,10 @@ public sealed class Catalog
         protected override Assembly? Load(AssemblyName name)
         {
             if (name.Name == "Unity.DataModel") return typeof(ICommandContext).Assembly;
-            if (resolver.ResolveAssemblyToPath(name) is { } p) return LoadFromAssemblyPath(p);
-            var local = Path.Combine(Path.GetDirectoryName(path)!, name.Name + ".dll");
-            return File.Exists(local) ? LoadFromAssemblyPath(local) : null;
+            var local = resolver.ResolveAssemblyToPath(name) ?? Path.Combine(Path.GetDirectoryName(path)!, name.Name + ".dll");
+            if (!File.Exists(local)) return null;
+            using var image = new MemoryStream(File.ReadAllBytes(local));
+            return LoadFromStream(image);
         }
     }
 

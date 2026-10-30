@@ -97,10 +97,14 @@ Build Profile** recreates its scene and profile).
     `Assets/AnimationViewer`): every clip in the workbench (`GET /api/…/animations` reads each `.anim`
     and each `.fbx`'s `.meta`: `clipAnimations`, `animationType` 3 = Humanoid; an `.anim` is Humanoid
     when it has muscle/root curves), played in the `AnimationViewer_WebGL` runtime (built to
-    `Builds/AnimationViewer_WebGL`) from the clip's Pipeline-built content archive. Humanoid clips play
-    on its humanoid character through the Avatar; an `.fbx`'s other clips on the model it imports; a
-    generic `.anim` on a rig built from the transform paths it animates. For those, **Generate a model
-    for this animation** quotes (`POST /api/animations/model-quote`) and, once accepted, runs
+    `Builds/AnimationViewer_WebGL`) from the clip's Pipeline-built content archive. Each clip plays on the
+    project's models that can play it (the list says how many; the picker above the view swaps them): the
+    server reads every `.fbx`'s node hierarchy (`FbxHierarchy.cs`) once per revision and matches Humanoid
+    clips to Humanoid models, other clips to models with the transform paths they animate (at least half,
+    also under another root name, which the player renames). With none, a Humanoid clip plays on the
+    viewer's own character (generated with Unity AI, `Assets/AnimationViewer/Character`), a generic `.anim`
+    on a rig built from the transform paths it animates. For those, **Generate a model for this
+    animation** quotes (`POST /api/animations/model-quote`) and, once accepted, runs
     `unity ai generate` (`POST /api/animations/model`); the open Editor imports the model under
     `Assets/AnimationViewer/Generated/<clip>/` and packs it (`AnimationViewerSetup.PackModel`) into an
     archive the player puts on each animated transform. Needs the `unity` CLI, signed in, and the

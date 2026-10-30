@@ -20,7 +20,10 @@ namespace Unity.Pipeline.AnimationViewer
     // The runtime half of Pipeline Explorer's Animations tab. The page has Pipeline build a content archive
     // (.ca) for a clip's asset (an .anim, or the .fbx that imports it) and calls Show: this player downloads and
     // mounts it, finds the clip by name and plays it.
-    //  - Humanoid clips play on the scene's humanoid character: its Avatar retargets them.
+    //  - mode "model": on a model from the project (its archive, modelUrl) that the page found compatible: its
+    //    Avatar retargets a Humanoid clip; a generic one binds by path, its top transform renamed when the page
+    //    says so (modelRoot → clipRoot: another animal's rig with the same bones).
+    //  - Humanoid clips (or mode "character") play on the scene's humanoid character: its Avatar retargets them.
     //  - mode "own": the clip plays on the model its .fbx imports (the archive has both).
     //  - mode "rig": a generic clip plays on a rig built from the transform paths it animates (same names and
     //    hierarchy), with a box on each, or a copy of a generated model when the page passes one (modelUrl).
@@ -41,6 +44,8 @@ namespace Unity.Pipeline.AnimationViewer
             public string[] paths;
             public string modelKey;
             public string modelUrl;
+            public string modelRoot;   // the model's top transform, renamed to clipRoot so the clip binds
+            public string clipRoot;
             public float speed = 1f;
         }
 
@@ -55,7 +60,11 @@ namespace Unity.Pipeline.AnimationViewer
             public bool humanoid;
             public bool legacy;
             public bool loop;
+            public int version;
         }
+
+        // What this player understands; the page offers the model picker from version 2 (modes "model", "character").
+        const int Version = 2;
 
 #if UNITY_WEBGL && !UNITY_EDITOR
         [DllImport("__Internal")] static extern void AnimationViewer_Send(string json);
@@ -151,7 +160,7 @@ namespace Unity.Pipeline.AnimationViewer
                 m_Character.applyRootMotion = false;
         }
 
-        void Start() => Send(new Report { type = "ready" });
+        void Start() => Send(new Report { type = "ready", version = Version });
 
         /// <summary>Load a clip's archive (and a generated model's, if any) and play the clip.</summary>
         public void Show(string json) => StartCoroutine(ShowRoutine(JsonUtility.FromJson<Message>(json), ++m_Show));
@@ -167,18 +176,27 @@ namespace Unity.Pipeline.AnimationViewer
             if (clip == null) { Error(m.clip, "the archive has no animation clip"); yield break; }
 
             Archive model = null;
-            if (!clip.humanMotion && m.mode == "rig" && !string.IsNullOrEmpty(m.modelUrl))
+            if ((m.mode == "model" || !clip.humanMotion && m.mode == "rig") && !string.IsNullOrEmpty(m.modelUrl))
             {
                 yield return Load(m.modelKey, m.modelUrl);
                 if (show != m_Show) yield break;
                 model = m_Archives[m.modelKey];
-                if (model.Error != null) { Error(m.clip, $"the generated model: {model.Error}"); yield break; }
+                if (model.Error != null) { Error(m.clip, $"the model: {model.Error}"); yield break; }
             }
 
             Clear();
             string target;
             GameObject on;
-            if (clip.humanMotion)
+            if (m.mode == "model" && model != null && Root(model) is { } picked)
+            {
+                // A model from the project: Humanoid clips retarget through its Avatar, others bind by path.
+                on = m_Subject = Instantiate(picked, m_Stage, false);
+                on.transform.localPosition = Vector3.zero;
+                if (!string.IsNullOrEmpty(m.modelRoot) && !string.IsNullOrEmpty(m.clipRoot) && on.transform.Find(m.modelRoot) is { } top)
+                    top.name = m.clipRoot;
+                target = picked.name;
+            }
+            else if (clip.humanMotion || m.mode == "character")
             {
                 if (m_Character == null) { Error(m.clip, "this player has no humanoid character"); yield break; }
                 on = m_Character.gameObject;
@@ -232,6 +250,8 @@ namespace Unity.Pipeline.AnimationViewer
                 if (!on.TryGetComponent<Animator>(out var animator))
                     animator = on.AddComponent<Animator>();
                 animator.applyRootMotion = false;
+                animator.runtimeAnimatorController = null;   // the graph drives it, not the model's controller
+                animator.Rebind();
                 m_Graph = PlayableGraph.Create("AnimationViewer");
                 m_Playable = AnimationClipPlayable.Create(m_Graph, clip);
                 AnimationPlayableOutput.Create(m_Graph, "clip", animator).SetSourcePlayable(m_Playable);

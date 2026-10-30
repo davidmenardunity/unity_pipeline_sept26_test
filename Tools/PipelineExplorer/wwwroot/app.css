@@ -486,6 +486,7 @@ pre.code { margin: 0; padding: 10px 12px; background: var(--sunk); border: 1px s
 .anim-paths { margin: 4px 0 0; padding-left: 16px; max-height: 160px; overflow: auto; overflow-wrap: anywhere; }
 .anim-prompt { width: 100%; box-sizing: border-box; margin: 6px 0; font: inherit; }
 .anim-gen-buttons { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.anim-pick { max-width: 260px; }
 @media (max-width: 900px) {
   .anim { grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 40%); }
   .anim .inspector { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
