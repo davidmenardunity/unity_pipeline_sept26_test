@@ -133,7 +133,6 @@ button.pill:hover { border-color: var(--accent); }
 .splitter:hover, .splitter:focus-visible, .splitter.dragging { background: var(--accent); outline: none; }
 body.resizing { cursor: col-resize; user-select: none; }
 body.resizing iframe { pointer-events: none; }
-.edit { grid-template-columns: 250px minmax(220px, 320px) minmax(0, 1fr); }
 .compare { grid-template-columns: 250px minmax(0, 1fr); }
 .col { min-height: 0; overflow: auto; }
 .col-head {
@@ -246,6 +245,13 @@ pre.code { margin: 0; padding: 10px 12px; background: var(--sunk); border: 1px s
 
 /* ── edit: objects and values ──────────────────────────── */
 .objects { background: var(--sunk); border-right: 1px solid var(--line); }
+/* The Inspector tab fills the asset panel below its header: objects on the left, values on the right, each scrolling. */
+#exInspector:has(#exInspect:not([hidden])) { display: flex; flex-direction: column; overflow: hidden; }
+#exInspector:has(#exInspect:not([hidden])) > #exAsset:not([hidden]) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.inspect { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(150px, 32%) minmax(0, 1fr); padding: 0; gap: 0; }
+.inspect > * { overflow: auto; min-height: 0; }
+.inspect.none { grid-template-columns: minmax(0, 1fr); }
+.inspect.none > .values-col { display: none; }
 .otree { list-style: none; margin: 0; padding: 6px 8px 24px; }
 .otree ul { list-style: none; margin: 0; padding-left: 14px; }
 .otree .grp { padding: 10px 8px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; }
@@ -373,8 +379,8 @@ pre.code { margin: 0; padding: 10px 12px; background: var(--sunk); border: 1px s
   .explorer { grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
   .splitter { display: none; }
   .explorer .inspector { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
-  .edit { grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: minmax(0, 40%) minmax(0, 1fr); }
-  .edit .inspector { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
+  .inspect { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 35%) minmax(0, 1fr); }
+  .inspect .objects { border-right: 0; border-bottom: 1px solid var(--line); }
   .pair { grid-template-columns: 1fr; }
   .level { grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 40%); }
   .level .inspector { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }

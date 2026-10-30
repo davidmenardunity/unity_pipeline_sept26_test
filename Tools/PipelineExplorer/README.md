@@ -67,26 +67,35 @@ Build Profile** recreates its scene and profile).
     (or every asset's), with replies, notes without a pin, **Resolve**/**Reopen**, **Delete** and
     **Show** (back to the viewpoint it was made from). Typing `@` lists the org's members; mentions
     are saved as `:user[Name]{#id}`.
-  - **Edit a project** (`edit.js`, `unityyaml.js`): open a `.prefab`, `.unity`, `.asset` or `.mat`,
-    pick an object, and edit its values. Saving writes the file back as one new workbench revision
-    (`POST /api/…/save`, a transaction with your message) and follows it until it validates. Only
-    the characters of changed values are replaced; values Unity wraps over several lines are
-    shown but not editable.
+  - **Inspector** (`edit.js`, a tab of the Explorer's asset panel, next to Viewer and Comments): for a
+    `.prefab`, `.unity`, `.asset` or `.mat`, it lists the file's objects; pick one and edit its values.
+    Picking another asset with unsaved edits asks first. The server reads the file with the Unity data model (`GET /api/…/model`) and
+    the page sends back only what changed: object, property path, new value. Saving
+    (`POST /api/…/model/edit`) has the model write those values into the file and commits it as one
+    new workbench revision with your message, then follows it until it validates; **Review** asks for
+    the same edit with `preview` and shows the diff. Only the characters of changed values are
+    replaced; values Unity wraps over several lines are shown but not editable.
   - **Compare branches** (`compare.js`): pick an asset, then a branch to compare with. That branch
     is read through its own workbench (create one from the page if it has none). Two viewers show
     the asset side by side, with its facts and a text diff.
-  - **Level editor** (`leveleditor.js`, `levelscene.js`, Unity side in `Assets/LevelEditor`): open a
+  - **Level editor** (`leveleditor.js`, Unity side in `Assets/LevelEditor`): open a
     `.unity` scene and it's rebuilt in its own WebGL runtime (the `LevelEditor_WebGL` build profile,
     built to `Builds/LevelEditor_WebGL`): each prefab instance and mesh object is placed where the scene
     says (through its parents), from the asset's Pipeline-built content archive; grey boxes show until
     an archive is ready. Drag prefabs from the tree into the view to add them. Left-click selects;
     drag the widget's arrows (or the object) to move; R rotates 15° (Shift+R back), F frames, Delete
     removes an added object; right-drag orbits, middle-drag pans, the wheel zooms. The panel shows the
-    objects and the selected one's world position, rotation and scale (editable). Saving writes only
-    the changed values into the scene (existing prefab overrides updated, missing ones added, new
-    prefab instances appended with their `SceneRoots` entry) as one new workbench revision.
+    objects and the selected one's world position, rotation and scale (editable). The scene is read
+    and written by the Unity data model's `LevelScene` on the server (`GET /api/…/level`,
+    `…/level/prefab`, `…/level/placeables`); saving (`POST /api/…/level/save`) sends the moved items'
+    world poses and the added prefabs, and the model writes only the changed values (existing prefab
+    overrides updated, missing ones added, new prefab instances appended with their `SceneRoots`
+    entry), committed as one new workbench revision.
     Limits: objects inside a prefab instance are placed at the instance's root; removing saved
     objects, rotating with the widget and prefab variants aren't supported yet.
+- **Unity data model** (`../Unity.DataModel`, endpoints in `DataModelEndpoints.cs`): the C# library
+  both editing tabs go through. See its README; tests in `../Unity.DataModel.Tests`
+  (`dotnet test Tools/Unity.DataModel.Tests`).
 - **Status bar**: what is running (step, progress, elapsed) or the last result; **Activity** opens
   every operation with the calls it made (the page sends `X-Op`, the server tags each call).
 

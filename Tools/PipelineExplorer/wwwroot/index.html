@@ -84,6 +84,7 @@
             <button class="tab" role="tab" data-tab="details" type="button">Details</button>
             <button class="tab" role="tab" data-tab="viewer" type="button">Viewer <span id="exViewerBadge"></span></button>
             <button class="tab" role="tab" data-tab="comments" type="button">Comments <span class="badge num" id="exCommentsBadge" hidden></span></button>
+            <button class="tab" role="tab" data-tab="inspector" type="button">Inspector <span class="dot warn" id="exInspectorBadge" title="Unsaved changes" hidden></span></button>
             <button class="tab" role="tab" data-tab="calls" type="button">Calls <span class="badge num" id="exCallsBadge">0</span></button>
           </div>
         </div>
@@ -96,22 +97,13 @@
           <div id="exViewerInfo"></div>
         </div>
         <div class="insp-body" id="exComments" data-panel="comments" hidden></div>
+        <!-- Inspector (edit.js): the asset's objects, and the selected one's values to edit. -->
+        <div class="insp-body inspect" id="exInspect" data-panel="inspector" hidden>
+          <section class="objects" aria-label="Objects" id="edObjects"></section>
+          <section class="values-col" aria-label="Values" id="edInspector"></section>
+        </div>
         <div class="insp-body" id="exCalls" data-panel="calls" hidden></div>
       </div>
-    </aside>
-  </main>
-
-  <!-- Edit a project: change values in prefabs, scenes and ScriptableObjects. -->
-  <main class="view work edit" id="view-edit" data-example="edit" hidden>
-    <aside class="col files" aria-label="Editable files">
-      <div class="col-head">Prefabs, scenes, assets <span class="grow"></span><span class="mono plain" id="edRev"></span></div>
-      <ul class="tree" id="edTree"></ul>
-    </aside>
-    <section class="col objects" aria-label="Objects" id="edObjects">
-      <div class="insp-empty muted">Pick a .prefab, .unity, .asset or .mat file. Its objects show here, and their values on the right.</div>
-    </section>
-    <aside class="col inspector" aria-label="Values" id="edInspector">
-      <div class="insp-empty muted">Pick an object to edit its values.</div>
     </aside>
   </main>
 
@@ -177,14 +169,12 @@
     <div class="row-end"><button class="btn small" id="exNewCancel" type="button">Cancel</button><button class="btn small primary" id="exNewCreate" type="button">Add tab</button></div>
   </div>
 
-  <script src="unityyaml.js"></script>
   <script src="app.js"></script>
   <script src="viewer.js"></script>
   <script src="comments.js"></script>
   <script src="explorer.js"></script>
   <script src="edit.js"></script>
   <script src="compare.js"></script>
-  <script src="levelscene.js"></script>
   <script src="leveleditor.js"></script>
   <script>App.boot();</script>
 </body>

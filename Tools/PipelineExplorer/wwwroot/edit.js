@@ -1,6 +1,8 @@
-// Edit a project: open a prefab, scene, ScriptableObject or material from the workbench, edit the values
-// of its objects, and save them as a new workbench revision. Edits replace only the characters of the
-// values that changed (unityyaml.js), so the rest of the file is saved exactly as it was.
+// Inspector: a tab of the Explorer's asset panel. For a prefab, scene, ScriptableObject or material, it lists
+// the file's objects, edits their values, and saves them as a new workbench revision. The server reads and writes the file with the
+// Unity data model (Tools/Unity.DataModel): the page gets the file's objects and fields (…/model), and sends
+// back only what changed (…/model/edit), which the model writes into the file's text value by value, so the
+// rest of the file is saved exactly as it was.
 "use strict";
 
 (() => {
@@ -8,12 +10,14 @@
   const INTERNAL = new Set(["m_ObjectHideFlags", "m_CorrespondingSourceObject", "m_PrefabInstance", "m_PrefabAsset", "m_GameObject",
     "serializedVersion", "m_Component", "m_Children", "m_Father", "m_EditorHideFlags", "m_EditorClassIdentifier"]);
   const BUILTIN_GUIDS = { "0000000000000000e000000000000000": "Built-in extra resources", "0000000000000000f000000000000000": "Built-in resources" };
-  const Y = UnityYaml;
+  const MONOBEHAVIOUR = 114;
+  const child = (nd, key) => nd?.children?.find((c) => c.key === key) ?? null;
 
   const ED = {
-    path: null, wb: null, rev: null, text: null, parsed: null, model: null,
+    path: null, wb: null, rev: null, text: null, model: null,
     sel: null,              // the selected object node (from model)
-    edits: new Map(),       // "line:start" → { line, start, end, text, old, label, doc }
+    edits: new Map(),       // "fileId:path" → { fileId, path, value, as, old, label, docType, line }
+    preview: null,          // { key, text }: the file with the edits, from the server (Review)
     showInternal: readPref("edit.internal") ?? false,
     filter: "",
     message: "",
@@ -22,64 +26,66 @@
   };
   const paths = new Map();  // guid → asset path (or null), resolved on demand
 
-  const tree = fileTree($("edTree"), {
-    show: (e) => e.isFolder || EDITABLE.test(e.path),
-    onFile: (path) => openFile(path),
-  });
+  // What the Explorer calls: show(path) when the tab is open on an asset; confirmLeave(path) before it picks
+  // another asset (unsaved edits are asked about).
+  window.Inspector = {
+    show(path) {
+      if (EDITABLE.test(path)) { $("exInspect").classList.remove("none"); openFile(path); return; }
+      if (ED.path && !ED.edits.size) closeFile();
+      $("exInspect").classList.add("none");
+      put($("edObjects"), h("div", { class: "insp-empty muted" }, `${fileName(path)} isn't a prefab, scene, ScriptableObject (.asset) or material, so it has no values to edit here.`));
+    },
+    async confirmLeave(path) {
+      if (!ED.edits.size || path === ED.path) return true;
+      const ok = await ask({ title: `Discard ${ED.edits.size} unsaved change${ED.edits.size === 1 ? "" : "s"}?`,
+        message: `Your edits to ${fileName(ED.path)} haven't been saved to the workbench.`, ok: "Discard", danger: true });
+      if (ok) { ED.edits.clear(); renderBar(); }
+      return ok;
+    },
+  };
 
-  App.register({ id: "edit", name: "Edit a project", desc: "Change values in prefabs, scenes and ScriptableObjects, and save them as a new workbench revision." });
-
-  App.on("revision", async ({ wb, revision }) => {
-    $("edRev").textContent = revision ? `rev ${revision}` : "";
-    await tree.open(wb, revision);
+  // A new revision of the file reopens it when the Explorer shows it again; edits are kept (the bar says the base moved).
+  App.on("revision", ({ wb, revision }) => {
     if (!ED.path) return;
-    if (!revision || wb !== ED.wb) { closeFile(); return; }
-    if (revision === ED.rev) return;
-    if (ED.edits.size) { renderInspector(); return; }   // keep the edits; the bar says the base moved
-    openFile(ED.path, { keepSelection: true, force: true });
+    if (!revision || wb !== ED.wb) closeFile();
+    else if (ED.edits.size) renderInspector();
   });
   App.on("ops", () => { if (ED.saveOp || ED.loadOp) renderBar(); });
 
   // ── opening a file ───────────────────────────────────────────────────────
 
   function closeFile() {
-    Object.assign(ED, { path: null, text: null, parsed: null, model: null, sel: null });
+    Object.assign(ED, { path: null, text: null, model: null, sel: null, preview: null });
     ED.edits.clear();
+    renderBar();
     put($("edObjects"), h("div", { class: "insp-empty muted" }, "Pick a .prefab, .unity, .asset or .mat file. Its objects show here, and their values on the right."));
     put($("edInspector"), h("div", { class: "insp-empty muted" }, "Pick an object to edit its values."));
   }
 
   async function openFile(path, { keepSelection = false, force = false } = {}) {
-    if (!force && path === ED.path && ED.rev === App.revision) return;
-    if (ED.edits.size && path !== ED.path) {
-      const ok = await ask({ title: `Discard ${ED.edits.size} unsaved change${ED.edits.size === 1 ? "" : "s"}?`,
-        message: `Your edits to ${fileName(ED.path)} haven't been saved to the workbench.`, ok: "Discard", danger: true });
-      if (!ok) { tree.select(ED.path); return; }
+    if (!force && path === ED.path && (ED.rev === App.revision || ED.edits.size)) {
+      if (ED.model) { renderObjects(); renderInspector(); }
+      return;
     }
     const keepId = keepSelection ? ED.sel?.doc.fileId : null;
     ED.loadOp?.stop(`You opened ${fileName(path)}.`);
     const wb = App.wb, rev = App.revision;
-    Object.assign(ED, { path, wb, rev, text: null, parsed: null, model: null, sel: null, reviewing: false, message: "" });
+    Object.assign(ED, { path, wb, rev, text: null, model: null, sel: null, reviewing: false, message: "", preview: null });
     ED.edits.clear();
-    tree.select(path);
     const op = ED.loadOp = Ops.start({ title: `Open ${fileName(path)}`, kind: "edit-open", asset: path,
-      steps: [{ id: "get", label: "Download the file" }, { id: "parse", label: "Read its objects" }] });
+      steps: [{ id: "get", label: "Read the file (Unity data model)" }, { id: "parse", label: "Read its objects" }] });
     put($("edObjects"), h("div", { class: "insp-empty" }, h("div", { class: "loading-line" }, h("span", { class: "spin" }), `Downloading ${fileName(path)} at revision ${rev}…`)));
     put($("edInspector"));
     try {
       op.step("get", "active");
-      const res = await call("GET", `${App.revUrl(wb, rev)}/file?path=${enc(path)}`, null, op);
-      const text = await res.text();
+      const data = await getJson(`${App.revUrl(wb, rev)}/model?path=${enc(path)}`, op);
       if (ED.path !== path || ED.loadOp !== op) return;
-      op.step("get", "done", fmtBytes(text.length));
+      op.step("get", "done", fmtBytes(data.text.length));
       op.step("parse", "active");
-      if (!text.startsWith("%YAML")) throw new Error(`${fileName(path)} isn't saved as text (YAML). Set Asset Serialization to Force Text in the project to edit it here.`);
-      const parsed = Y.parse(text);
-      ED.text = text;
-      ED.parsed = parsed;
-      ED.model = Y.model(parsed);
-      op.step("parse", "done", `${parsed.docs.length} objects`);
-      op.done(`${parsed.docs.length} objects`);
+      ED.text = data.text;
+      ED.model = readModel(data);
+      op.step("parse", "done", `${ED.model.docs.length} objects`);
+      op.done(`${ED.model.docs.length} objects`);
       op.quiet = true;
       const all = flat();
       ED.sel = (keepId && all.find((n) => n.doc.fileId === keepId)) || ED.model.roots[0] || ED.model.others[0] || null;
@@ -91,6 +97,24 @@
       put($("edObjects"), h("div", { class: "insp-empty" }, h("div", { class: "callout bad" }, h("span", { class: "dot bad" }),
         h("div", {}, h("p", {}, describeError(e)), h("div", { class: "actions" }, h("button", { class: "btn small", onclick: () => openFile(path, { force: true }) }, "Retry"))))));
     }
+  }
+
+  // The server's model: documents by fileId, each field keyed "fileId:path"; hierarchy nodes point at their documents.
+  function readModel(data) {
+    const byId = new Map();
+    for (const doc of data.objects) {
+      const walk = (nd) => {
+        nd.uid = `${doc.fileId}:${nd.path}`;
+        nd.children ??= [];
+        for (const it of nd.items ?? []) { it.uid = `${doc.fileId}:${it.path}`; it.line = nd.line; }
+        nd.children.forEach(walk);
+      };
+      walk(doc.root);
+      byId.set(doc.fileId, doc);
+    }
+    const node = (n) => ({ doc: byId.get(n.fileId), kind: n.kind, label: n.label, children: n.children.map(node) });
+    const componentsOf = new Map(data.objects.filter((d) => d.components).map((d) => [d.fileId, d.components.map((id) => byId.get(id)).filter(Boolean)]));
+    return { docs: data.objects, byId, roots: data.hierarchy.roots.map(node), others: data.hierarchy.others.map(node), componentsOf };
   }
 
   const flat = () => {
@@ -105,8 +129,8 @@
 
   const KIND_LABEL = { go: "GO", instance: "PI", object: "OBJ" };
   const docsOf = (n) => n.kind === "go" ? [n.doc, ...(ED.model.componentsOf.get(n.doc.fileId) ?? [])] : [n.doc];
-  const editedDocs = () => new Set([...ED.edits.values()].map((e) => e.doc));
-  const isActive = (n) => n.kind !== "go" || Y.child(n.doc.root, "m_IsActive")?.raw.trim() !== "0";
+  const editedDocs = () => new Set([...ED.edits.values()].map((e) => e.fileId));
+  const isActive = (n) => n.kind !== "go" || child(n.doc.root, "m_IsActive")?.raw.trim() !== "0";
 
   function renderObjects() {
     if (!ED.model) return;
@@ -122,9 +146,9 @@
       n.children.length ? h("ul", {}, n.children.map(item)) : null);
     const kindName = { prefab: "Prefab", unity: "Scene", asset: "Asset", mat: "Material" }[ext(ED.path)] ?? "File";
     put($("edObjects"),
-      h("div", { class: "col-head" }, kindName, h("span", { class: "grow" }), h("span", { class: "plain mono" }, `${ED.parsed.docs.length} objects`)),
-      h("div", { style: "padding:8px 16px 0" }, h("div", { class: "path" }, folderOf(ED.path) + "/", h("b", {}, fileName(ED.path))),
-        h("input", { class: "filter", type: "search", placeholder: "Filter objects", value: ED.filter, style: "width:100%;margin-top:8px",
+      h("div", { class: "col-head" }, kindName, h("span", { class: "grow" }), h("span", { class: "plain mono" }, `${ED.model.docs.length} objects`)),
+      h("div", { style: "padding:8px 16px 0" },
+        h("input", { class: "filter", type: "search", placeholder: "Filter objects", value: ED.filter, style: "width:100%",
           oninput: (e) => { ED.filter = e.target.value; renderObjects(); const el = $("edObjects").querySelector("input.filter"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); } })),
       h("ul", { class: "otree" },
         ED.model.roots.length ? [h("li", { class: "grp" }, ext(ED.path) === "unity" ? "Hierarchy" : "GameObjects"), ED.model.roots.map(item)] : null,
@@ -150,7 +174,7 @@
   function goSection(n) {
     const root = n.doc.root;
     const keys = ["m_Name", "m_IsActive", "m_TagString", "m_Layer", "m_StaticEditorFlags"];
-    const fields = keys.map((k) => Y.child(root, k)).filter(Boolean).map((c) => field(c, n.doc, []));
+    const fields = keys.map((k) => child(root, k)).filter(Boolean).map((c) => field(c, n.doc, []));
     if (ED.showInternal) fields.push(...root.children.filter((c) => !keys.includes(c.key)).map((c) => field(c, n.doc, [])));
     return h("details", { class: "comp", open: true },
       h("summary", {}, "GameObject", h("span", { class: "muted mono small" }, `&${n.doc.fileId}`)),
@@ -158,7 +182,7 @@
   }
 
   function docSection(doc, open = true) {
-    const title = doc.classId === Y.CLASS.MonoBehaviour ? scriptTitle(doc) : doc.type;
+    const title = doc.classId === MONOBEHAVIOUR ? scriptTitle(doc) : doc.type;
     const fields = doc.root.children.filter((c) => ED.showInternal || !INTERNAL.has(c.key)).map((c) => field(c, doc, []));
     return h("details", { class: "comp", open: open ? true : null },
       h("summary", {}, title, h("span", { class: "muted mono small" }, `${doc.type !== title ? doc.type + " " : ""}&${doc.fileId}`), doc.stripped ? h("span", { class: "muted small" }, "(stripped)") : null),
@@ -167,28 +191,28 @@
 
   // A MonoBehaviour is titled by its script, whose path is resolved from the script's GUID.
   function scriptTitle(doc) {
-    const r = Y.ref(Y.child(doc.root, "m_Script"));
+    const r = child(doc.root, "m_Script")?.ref;
     const known = r?.guid ? paths.get(r.guid) : undefined;
     if (r?.guid && known === undefined) resolve(r.guid).then(() => renderInspector());
     const name = known ? fileName(known).replace(/\.cs$/, "") : null;
-    return name ?? (scalar(Y.child(doc.root, "m_Name")) || "MonoBehaviour");
+    return name ?? (scalar(child(doc.root, "m_Name")) || "MonoBehaviour");
   }
 
   function instanceSection(n) {
-    const mod = Y.child(n.doc.root, "m_Modification");
-    const src = Y.ref(Y.child(n.doc.root, "m_SourcePrefab"));
-    const mods = Y.child(mod, "m_Modifications")?.children ?? [];
+    const mod = child(n.doc.root, "m_Modification");
+    const src = child(n.doc.root, "m_SourcePrefab")?.ref;
+    const mods = child(mod, "m_Modifications")?.children ?? [];
     return [
       h("details", { class: "comp", open: true }, h("summary", {}, "Prefab instance", h("span", { class: "muted mono small" }, `&${n.doc.fileId}`)),
         h("div", { class: "fields" },
           h("div", { class: "f" }, h("label", {}, "Source prefab"), h("div", { class: "v" }, refEl(src))),
-          h("div", { class: "f" }, h("label", {}, "Parent"), h("div", { class: "v" }, refEl(Y.ref(Y.child(mod, "m_TransformParent"))))))),
+          h("div", { class: "f" }, h("label", {}, "Parent"), h("div", { class: "v" }, refEl(child(mod, "m_TransformParent")?.ref))))),
       h("details", { class: "comp", open: true }, h("summary", {}, "Overrides", h("span", { class: "muted small" }, `${mods.length} values changed from the source prefab`)),
         h("div", { class: "fields mods" }, mods.length ? mods.map((m) => {
-          const prop = scalar(Y.child(m, "propertyPath"));
-          const value = Y.child(m, "value");
-          const objRef = Y.ref(Y.child(m, "objectReference"));
-          const target = Y.ref(Y.child(m, "target"));
+          const prop = scalar(child(m, "propertyPath"));
+          const value = child(m, "value");
+          const objRef = child(m, "objectReference")?.ref;
+          const target = child(m, "target")?.ref;
           return h("div", { class: "f", title: `target fileID ${target?.fileId}` },
             h("label", { title: prop }, prop),
             h("div", { class: "v" }, objRef && objRef.fileId !== "0" ? refEl(objRef) : value ? input(value, n.doc, [prop]) : h("span", { class: "ro" }, "—")));
@@ -199,7 +223,7 @@
   // ── one field ────────────────────────────────────────────────────────────
 
   const pretty = (key) => /^\d+$/.test(key) ? `Element ${key}` : key.replace(/^m_/, "").replace(/^_/, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
-  const scalar = (nd) => Y.scalarText(nd?.raw);
+  const scalar = (nd) => nd?.value ?? "";
 
   function field(nd, doc, trail) {
     const label = pretty(nd.key);
@@ -219,8 +243,9 @@
       h("div", { class: "v" }, input(nd, doc, t)));
   }
 
-  const keyOf = (x) => `${x.line}:${x.start}`;
-  const current = (x) => ED.edits.get(keyOf(x))?.text ?? x.raw;
+  const keyOf = (x) => x.uid;
+  // A value as the inputs show it: plain text (a number as written), with any edit.
+  const current = (x, type) => ED.edits.get(keyOf(x))?.value ?? (type === "number" || type === "bool" ? x.raw.trim() : x.value);
   const NUM = /^-?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/;
   // 0/1 values that are on/off switches (others, like m_CastShadows, are enums and stay numbers).
   const BOOL_KEY = /^m_(Is[A-Z]\w*|Enabled|Use[A-Z]\w*|Enable[A-Z]\w*|ReceiveShadows|DynamicOccludee|StaticShadowCaster|ConstrainProportionsScale)$|^_?\w*Enabled$/;
@@ -229,30 +254,29 @@
     if (nd.kind === "block" && !nd.children.length) return h("span", { class: "ro" }, "(empty)");
     if (nd.readOnly || nd.kind === "flowseq") return h("span", { class: "ro", title: "This value spans several lines, so it's shown but not edited here." }, nd.raw.trim().slice(0, 120) || "—");
     if (nd.kind === "flow") {
-      const r = Y.ref(nd);
-      if (r) return refEl(r);
+      if (nd.ref) return refEl(nd.ref);
       const keys = nd.items.map((i) => i.key);
       if (keys.every((k) => "rgba".includes(k)) && keys.length >= 3) return colorInput(nd, doc, trail);
       return nd.items.map((it) => h("span", { class: "axis" }, h("span", {}, it.key), textInput(it, doc, [...trail, it.key], NUM.test(it.raw.trim()) ? "number" : "text")));
     }
     const v = nd.raw.trim();
     if ((v === "0" || v === "1") && BOOL_KEY.test(nd.key)) {
-      return h("input", { type: "checkbox", checked: current(nd).trim() === "1" ? true : null, "aria-label": pretty(nd.key),
-        onchange: (e) => setEdit(nd, doc, trail, e.target.checked ? "1" : "0", e.target) });
+      return h("input", { type: "checkbox", checked: current(nd, "bool") === "1" ? true : null, "aria-label": pretty(nd.key),
+        onchange: (e) => setEdit(nd, doc, trail, e.target.checked ? "1" : "0", "bool", e.target) });
     }
     return textInput(nd, doc, trail, NUM.test(v) ? "number" : "text");
   }
 
   function textInput(x, doc, trail, type) {
-    const shown = type === "number" ? current(x).trim() : Y.scalarText(current(x));
+    const shown = current(x, type);
     const el = h("input", { type: "text", inputmode: type === "number" ? "decimal" : null, value: shown, spellcheck: "false", "aria-label": trail.join("."),
       onchange: (e) => {
         const v = e.target.value;
         if (type === "number") {
           if (!NUM.test(v.trim())) { e.target.setCustomValidity("Enter a number"); e.target.reportValidity(); return; }
           e.target.setCustomValidity("");
-          setEdit(x, doc, trail, v.trim(), e.target);
-        } else setEdit(x, doc, trail, Y.formatString(v, x.raw), e.target);
+          setEdit(x, doc, trail, v.trim(), "number", e.target);
+        } else setEdit(x, doc, trail, v, "string", e.target);
       } });
     if (ED.edits.has(keyOf(x))) queueMicrotask(() => el.closest(".f")?.classList.add("changed"));
     return el;
@@ -260,12 +284,12 @@
 
   function colorInput(nd, doc, trail) {
     const item = (k) => nd.items.find((i) => i.key === k);
-    const val = (k) => Number(current(item(k)) ?? 0);
+    const val = (k) => Number(current(item(k), "number") ?? 0);
     const hex = "#" + ["r", "g", "b"].map((k) => Math.round(Math.min(1, Math.max(0, val(k))) * 255).toString(16).padStart(2, "0")).join("");
     const picker = h("input", { type: "color", value: hex, "aria-label": `${trail.join(".")} colour`,
       onchange: (e) => {
         const c = e.target.value;
-        ["r", "g", "b"].forEach((k, i) => setEdit(item(k), doc, [...trail, k], String(+(parseInt(c.slice(1 + i * 2, 3 + i * 2), 16) / 255).toFixed(7)), e.target));
+        ["r", "g", "b"].forEach((k, i) => setEdit(item(k), doc, [...trail, k], String(+(parseInt(c.slice(1 + i * 2, 3 + i * 2), 16) / 255).toFixed(7)), "number", e.target));
         renderInspector();
       } });
     return [picker, ...nd.items.map((it) => h("span", { class: "axis" }, h("span", {}, it.key), textInput(it, doc, [...trail, it.key], "number")))];
@@ -298,16 +322,20 @@
 
   // ── edits and saving ─────────────────────────────────────────────────────
 
-  function setEdit(x, doc, trail, text, el) {
+  // An edit is the object, the property path and the new value; the server's data model writes it.
+  function setEdit(x, doc, trail, value, as, el) {
     const key = keyOf(x);
-    if (text === x.raw) ED.edits.delete(key);
-    else ED.edits.set(key, { line: x.line, start: x.start, end: x.end, text, old: x.raw, label: trail.join("."), doc: doc.fileId, docType: doc.type });
+    const old = as === "string" ? x.value : x.raw.trim();
+    if (value === old) ED.edits.delete(key);
+    else ED.edits.set(key, { fileId: doc.fileId, path: x.path, value, as, old, label: trail.join("."), docType: doc.type, line: x.line });
+    ED.preview = null;
     el?.closest(".f")?.classList.toggle("changed", ED.edits.has(key));
     renderBar();
     renderObjects();
   }
 
   function renderBar() {
+    $("exInspectorBadge").hidden = !ED.edits.size;
     const bar = $("edBar");
     if (!bar) return;
     const n = ED.edits.size;
@@ -341,22 +369,35 @@
         h("p", {}, `The workbench is now at revision ${App.revision}; these edits are on revision ${ED.rev}. Saving writes this whole file, replacing any newer change to it.`))) : null);
   }
 
+  const editList = () => [...ED.edits.values()].map(({ fileId, path, value, as }) => ({ fileId, path, value, as }));
+
+  // The diff comes from the server: the data model writes the edits (without saving) and returns the text.
   function reviewSection() {
-    const after = Y.apply(ED.parsed, [...ED.edits.values()]);
-    const diff = lineDiff(ED.text, after);
+    const key = JSON.stringify(editList());
+    if (ED.preview?.key !== key && ED.preview?.pending !== key) {
+      ED.preview = { pending: key };
+      const done = (p) => { if (ED.preview?.pending === key) { ED.preview = { key, ...p }; if (ED.reviewing) renderInspector(); } };
+      postJson(`${App.revUrl(ED.wb, ED.rev)}/model/edit`, { path: ED.path, edits: editList(), preview: true })
+        .then((r) => done({ text: r.text }), (e) => done({ error: describeError(e) }));
+    }
+    const ready = ED.preview?.key === key ? ED.preview : null;
+    const diff = ready?.text != null ? lineDiff(ED.text, ready.text) : null;
     return h("div", { style: "padding:12px 16px", class: "section" },
       h("h2", {}, "Changes"),
       h("ul", { class: "list", style: "margin-bottom:10px" }, [...ED.edits.values()].map((e) => h("li", {},
-        h("span", { class: "what" }, h("span", { class: "mono" }, e.label), h("small", {}, `${e.docType} &${e.doc} · line ${e.line + 1}`)),
-        h("span", { class: "mono small" }, `${e.old.trim() || "''"} → ${e.text.trim() || "''"}`),
-        h("button", { class: "btn small ghost", onclick: () => { ED.edits.delete(`${e.line}:${e.start}`); renderInspector(); renderObjects(); } }, "Revert")))),
-      diff ? diffEl(diff, 2) : h("div", { class: "muted small" }, "The file is too big to show a diff."));
+        h("span", { class: "what" }, h("span", { class: "mono" }, e.label), h("small", {}, `${e.docType} &${e.fileId} · line ${e.line + 1}`)),
+        h("span", { class: "mono small" }, `${e.old.trim() || "''"} → ${e.value.trim() || "''"}`),
+        h("button", { class: "btn small ghost", onclick: () => { ED.edits.delete(`${e.fileId}:${e.path}`); ED.preview = null; renderInspector(); renderObjects(); } }, "Revert")))),
+      !ready ? h("div", { class: "loading-line" }, h("span", { class: "spin" }), "The data model is writing the changes…")
+        : ready.error ? h("div", { class: "callout bad" }, h("span", { class: "dot bad" }), h("div", {}, h("p", {}, ready.error)))
+        : diff ? diffEl(diff, 2) : h("div", { class: "muted small" }, "The file is too big to show a diff."));
   }
 
   async function revertAll() {
     if (!(await ask({ title: `Revert ${ED.edits.size} change${ED.edits.size === 1 ? "" : "s"}?`, message: "The values go back to what the workbench has.", ok: "Revert", danger: true }))) return;
     ED.edits.clear();
     ED.reviewing = false;
+    ED.preview = null;
     renderObjects();
     renderInspector();
   }
@@ -364,16 +405,16 @@
   async function save() {
     if (!ED.edits.size || ED.saveOp?.running) return;
     const path = ED.path, wb = ED.wb, base = ED.rev;
-    const text = Y.apply(ED.parsed, [...ED.edits.values()]);
+    const edits = editList();
     const n = ED.edits.size;
     const message = ED.message.trim() || `Edit ${fileName(path)}: ${n} value${n === 1 ? "" : "s"}`;
     const op = ED.saveOp = Ops.start({ title: `Save ${fileName(path)} (${n} change${n === 1 ? "" : "s"})`, kind: "edit-save", asset: path,
-      steps: [{ id: "upload", label: "Upload and commit" }, { id: "validating", label: "Validate the new revision" }, { id: "settled", label: "Ready to read" }, { id: "reload", label: "Reopen the file" }] });
-    op.onShow = () => tree.select(path);
+      steps: [{ id: "upload", label: "Write with the data model and commit" }, { id: "validating", label: "Validate the new revision" }, { id: "settled", label: "Ready to read" }, { id: "reload", label: "Reopen the file" }] });
+    op.onShow = () => window.Explorer?.show(path, "inspector");
     renderBar();
     try {
-      op.step("upload", "active", fmtBytes(text.length));
-      const r = await postJson(`${App.revUrl(wb, base)}/save`, { files: [{ path, text }], message }, op);
+      op.step("upload", "active", `${n} value${n === 1 ? "" : "s"}`);
+      const r = await postJson(`${App.revUrl(wb, base)}/model/edit`, { path, edits, message }, op);
       op.step("upload", "done", `revision ${r.revision}`);
       op.note(`Committed "${message}" as revision ${r.revision}. It validates before it can be read.`);
       const settled = await waitUntilSettled(wb, op, r.revision);

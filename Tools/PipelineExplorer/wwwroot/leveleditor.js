@@ -1,16 +1,16 @@
 // Level editor: open a .unity scene from the workbench, rebuild it in the level editor's WebGL runtime
 // (each asset from its Pipeline-built content archive), drag prefabs in from the file tree, move things
 // with the runtime's widget or the transform fields, and save the scene back as a new workbench revision.
-// The scene model (what's placed where, and the edits that save it) is in levelscene.js.
+// The scene is read and written on the server with the Unity data model (Tools/Unity.DataModel, LevelScene):
+// …/level and …/level/placeables say what's placed where, …/level/save moves and adds, and commits.
 "use strict";
 
 (() => {
-  const Y = UnityYaml, L = LevelScene;
   const LE = {
-    path: null, wb: null, rev: null, parsed: null, scene: null,
-    items: [],                 // placeables, plus added ones (kind "new")
+    path: null, wb: null, rev: null,
+    items: [],                 // placeables { id, kind, name, assetGuid, primitive, world }, plus added ones (kind "new")
     skipped: [],
-    prefabs: new Map(),        // guid → readPrefab() (or null)
+    prefabs: new Map(),        // guid → { path, name, ok } from …/level/prefab
     assets: new Map(),         // asset guid → { path, state: "building"|"ready"|"failed", error }
     selected: null,
     filter: "",
@@ -19,6 +19,28 @@
   };
   let viewer = null;
   const dirtyCount = () => LE.items.filter((i) => i.dirty || i.kind === "new").length;
+
+  // ── rotations for the transform fields: { p: [x,y,z], q: [x,y,z,w], s: [x,y,z] } ──
+  const IDENTITY = () => ({ p: [0, 0, 0], q: [0, 0, 0, 1], s: [1, 1, 1] });
+  const qmul = (a, b) => [
+    a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+    a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+    a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+    a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+  ];
+  function eulerOf(q) {   // Unity's order (ZXY), degrees
+    const [x, y, z, w] = q;
+    const sinX = 2 * (w * x - y * z);
+    const ex = Math.abs(sinX) >= 1 ? Math.sign(sinX) * 90 : Math.asin(sinX) * 180 / Math.PI;
+    const ey = Math.atan2(2 * (w * y + x * z), 1 - 2 * (x * x + y * y)) * 180 / Math.PI;
+    const ez = Math.atan2(2 * (w * z + x * y), 1 - 2 * (x * x + z * z)) * 180 / Math.PI;
+    return [ex, ey, ez];
+  }
+  function quatOf([ex, ey, ez]) {   // Unity's Quaternion.Euler: Z, then X, then Y
+    const r = Math.PI / 360, cx = Math.cos(ex * r), sx = Math.sin(ex * r), cy = Math.cos(ey * r), sy = Math.sin(ey * r), cz = Math.cos(ez * r), sz = Math.sin(ez * r);
+    return qmul(qmul([0, sy, 0, cy], [sx, 0, 0, cx]), [0, 0, sz, cz]);
+  }
+  const fmt = (v) => (Math.abs(v) < 1e-7 ? "0" : String(Number(v.toPrecision(8))));
 
   const tree = fileTree($("leTree"), {
     show: (e) => e.isFolder || /\.(unity|prefab)$/i.test(e.path),
@@ -95,39 +117,36 @@
     }
     LE.openOp?.stop(`You opened ${fileName(path)}.`);
     const wb = App.wb, rev = App.revision;
-    Object.assign(LE, { path, wb, rev, parsed: null, scene: null, items: [], skipped: [], selected: null, message: "" });
+    Object.assign(LE, { path, wb, rev, items: [], skipped: [], selected: null, message: "" });
     tree.select(path);
     rt("Clear");
     const op = LE.openOp = Ops.start({ title: `Open ${fileName(path)}`, kind: "level-open", asset: path,
-      steps: [{ id: "get", label: "Download the scene" }, { id: "read", label: "Read its objects" },
+      steps: [{ id: "get", label: "Read the scene (Unity data model)" }, { id: "read", label: "Read its objects" },
         { id: "prefabs", label: "Read the prefabs it uses" }, { id: "place", label: "Place them" }, { id: "archives", label: "Pipeline builds each asset's archive" }] });
     renderPanel();
     renderOverlay();
     try {
       op.step("get", "active");
-      const text = await (await call("GET", `${App.revUrl(wb, rev)}/file?path=${enc(path)}`, null, op)).text();
+      const scene = await getJson(`${App.revUrl(wb, rev)}/level?path=${enc(path)}`, op);
       if (LE.openOp !== op) return;
-      op.step("get", "done", fmtBytes(text.length));
-      op.step("read", "active");
-      if (!text.startsWith("%YAML")) throw new Error(`${fileName(path)} isn't saved as text (YAML), so it can't be read here.`);
-      LE.parsed = Y.parse(text);
-      LE.scene = L.readScene(LE.parsed);
+      op.step("get", "done");
       const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-      op.step("read", "done", `${plural(LE.scene.instances.length, "prefab instance", "prefab instances")}, ${plural(LE.scene.objects.length, "object", "objects")} with a mesh`);
+      op.step("read", "done", `${plural(scene.instances, "prefab instance", "prefab instances")}, ${plural(scene.objects, "object", "objects")} with a mesh`);
 
-      // Each prefab's root (its default transform, and the ids saving needs).
-      const guids = [...new Set(LE.scene.instances.map((i) => i.sourceGuid))].filter((g) => !LE.prefabs.has(g));
+      // Each prefab's root (the server reads it with the data model, and keeps it for placing and saving).
+      const guids = scene.prefabs;
       let done = 0;
       op.step("prefabs", "active", `0/${guids.length}`);
       await pool(guids, 6, async (g) => {
-        LE.prefabs.set(g, await readPrefabAt(wb, rev, g, op));
+        await readPrefab(wb, rev, { guid: g }, op);
         op.step("prefabs", "active", `${++done}/${guids.length}`);
       });
       if (LE.openOp !== op) return;
       op.step("prefabs", "done", `${guids.length} read`);
 
       op.step("place", "active");
-      const { items, skipped } = L.placeables(LE.scene, LE.prefabs);
+      const { items, skipped } = await getJson(`${App.revUrl(wb, rev)}/level/placeables?path=${enc(path)}`, op);
+      if (LE.openOp !== op) return;
       LE.items = items;
       LE.skipped = skipped;
       for (const item of items) rt("Place", placeArgs(item));
@@ -152,15 +171,17 @@
     await Promise.all(Array.from({ length: Math.min(n, queue.length) }, async () => { while (queue.length) await fn(queue.shift()); }));
   }
 
-  async function readPrefabAt(wb, rev, guid, op) {
+  // A prefab's root, by { guid } or { path }: { guid, path, name, ok, reason }.
+  async function readPrefab(wb, rev, by, op) {
     try {
-      const a = await getJson(`${App.revUrl(wb, rev)}/assets/${guid}`, op);
-      const path = (a.path ?? "").replace(/^\/+/, "");
-      LE.assets.set(guid, { ...(LE.assets.get(guid) ?? {}), path });
-      if (!path.endsWith(".prefab")) return null;
-      const text = await (await call("GET", `${App.revUrl(wb, rev)}/file?path=${enc(path)}`, null, op)).text();
-      return L.readPrefab(Y.parse(text));
-    } catch { return null; }
+      const q = by.guid ? `guid=${enc(by.guid)}` : `path=${enc(by.path)}`;
+      const r = await getJson(`${App.revUrl(wb, rev)}/level/prefab?${q}`, op);
+      if (r.guid) {
+        LE.prefabs.set(r.guid, r);
+        if (r.path) LE.assets.set(r.guid, { ...(LE.assets.get(r.guid) ?? {}), path: r.path });
+      }
+      return r;
+    } catch (e) { return { guid: by.guid ?? null, ok: false, reason: describeError(e) }; }
   }
 
   async function buildArchives(guids, op, wb, rev) {
@@ -188,21 +209,19 @@
   // ── adding prefabs (dropped from the file tree) ──────────────────────
 
   async function drop({ path, u, v }) {
-    if (!LE.scene) { banner("Open a .unity scene first, then drag prefabs into it.", "info"); return; }
+    if (!LE.path || !LE.rev) { banner("Open a .unity scene first, then drag prefabs into it.", "info"); return; }
     if (!/\.prefab$/i.test(path)) { banner(`Only prefabs can be added (${fileName(path)} isn't one).`, "info"); return; }
     const wb = LE.wb, rev = LE.rev;
     const op = Ops.start({ title: `Add ${fileName(path)}`, kind: "level-add", asset: path,
       steps: [{ id: "read", label: "Read the prefab" }, { id: "archives", label: "Pipeline builds its archive" }] });
     try {
       op.step("read", "active");
-      const r = await getJson(`${App.revUrl(wb, rev)}/asset?path=${enc(path)}`, op);
+      const r = await readPrefab(wb, rev, { path }, op);
       if (!r.guid) throw new Error(`${fileName(path)} has no GUID at revision ${rev}.`);
-      if (!LE.prefabs.has(r.guid)) LE.prefabs.set(r.guid, await readPrefabAt(wb, rev, r.guid, op));
-      const info = LE.prefabs.get(r.guid);
-      if (!info) throw new Error(`${fileName(path)} has no plain root (a prefab variant?), so it can't be added here.`);
+      if (!r.ok) throw new Error(`${fileName(path)} has no plain root (a prefab variant?), so it can't be added here.`);
       op.step("read", "done");
-      const item = { id: `new-${Date.now().toString(36)}`, kind: "new", name: info.name ?? fileName(path).replace(/\.prefab$/i, ""), assetGuid: r.guid,
-        parentWorld: L.IDENTITY(), world: L.IDENTITY() };
+      const item = { id: `new-${Date.now().toString(36)}`, kind: "new", name: r.name ?? fileName(path).replace(/\.prefab$/i, ""), assetGuid: r.guid,
+        world: IDENTITY() };
       LE.items.push(item);
       LE.selected = item;
       rt("DropAt", { id: rid(item), key: r.guid, name: item.name, u, v });
@@ -227,23 +246,24 @@
     const path = LE.path, wb = LE.wb, base = LE.rev;
     const moved = LE.items.filter((i) => i.dirty), added = LE.items.filter((i) => i.kind === "new");
     const message = LE.message.trim() || `Level editor: ${[moved.length ? `move ${moved.length}` : "", added.length ? `add ${added.length}` : ""].filter(Boolean).join(", ")} in ${fileName(path)}`;
-    const edits = L.saveEdits(LE.scene, LE.items.filter((i) => i.kind !== "new"), added, LE.prefabs);
-    const text = Y.apply(LE.parsed, edits);
+    // The server's data model writes moved items (relative to their parents) and added prefab instances.
+    const body = { path, message,
+      moved: moved.map((i) => ({ id: i.id, world: i.world })),
+      added: added.map((a) => ({ key: rid(a), assetGuid: a.assetGuid, name: a.name, world: a.world })) };
     const op = LE.saveOp = Ops.start({ title: `Save ${fileName(path)}`, kind: "edit-save", asset: path,
-      steps: [{ id: "upload", label: "Upload and commit" }, { id: "validating", label: "Validate the new revision" }, { id: "settled", label: "Ready to read" }] });
+      steps: [{ id: "upload", label: "Write with the data model and commit" }, { id: "validating", label: "Validate the new revision" }, { id: "settled", label: "Ready to read" }] });
     renderBar();
     try {
-      op.step("upload", "active", `${edits.length} edits`);
-      const r = await postJson(`${App.revUrl(wb, base)}/save`, { files: [{ path, text }], message }, op);
+      op.step("upload", "active", `${moved.length + added.length} changes`);
+      const r = await postJson(`${App.revUrl(wb, base)}/level/save`, body, op);
       op.step("upload", "done", `revision ${r.revision}`);
       const settled = await waitUntilSettled(wb, op, r.revision);
-      // The scene now is the saved text: re-read it without rebuilding what's on screen. Added instances
-      // become the scene's own (their new fileIDs), and keep their runtime ids.
-      const runtimeIdOf = new Map(added.map((a) => [a.fileId, rid(a)]));
+      // The scene now is what the server saved: take its placeables without rebuilding what's on screen.
+      // Added instances become the scene's own (their new fileIDs), and keep their runtime ids.
+      const runtimeIdOf = new Map(Object.entries(r.added ?? {}).map(([key, fileId]) => [fileId, key]));
       const selected = LE.selected ? rid(LE.selected) : null;
-      LE.parsed = Y.parse(text);
-      LE.scene = L.readScene(LE.parsed);
-      LE.items = L.placeables(LE.scene, LE.prefabs).items.map((i) => ({ ...i, rid: runtimeIdOf.get(i.id) ?? i.id }));
+      LE.items = r.placed.items.map((i) => ({ ...i, rid: runtimeIdOf.get(i.id) ?? i.id }));
+      LE.skipped = r.placed.skipped;
       LE.selected = LE.items.find((i) => rid(i) === selected) ?? null;
       LE.rev = settled;
       if (App.wb === wb) await openRevision(wb, settled);
@@ -334,9 +354,9 @@
     if (!box) return;
     const i = LE.selected;
     if (!i) { put(box, h("div", { class: "muted small", style: "padding:12px 16px" }, LE.path ? "Select an object in the view or the list." : "")); return; }
-    const e = L.eulerOf(i.world.q);
+    const e = eulerOf(i.world.q);
     const input = (label, value, onchange) => h("span", { class: "axis" }, h("span", {}, label),
-      h("input", { type: "text", inputmode: "decimal", value: L.fmt(Math.round(value * 1e4) / 1e4), onchange: (ev) => {
+      h("input", { type: "text", inputmode: "decimal", value: fmt(Math.round(value * 1e4) / 1e4), onchange: (ev) => {
         const v = Number(ev.target.value);
         if (!Number.isFinite(v)) { ev.target.setCustomValidity("Enter a number"); ev.target.reportValidity(); return; }
         ev.target.setCustomValidity("");
@@ -355,7 +375,7 @@
           i.kind === "new" ? "Added (not saved yet) · " : i.kind === "instance" ? "Prefab instance · " : "Object · ", a?.path ?? i.primitive ?? "", a?.error ? h("div", { class: "s5" }, a.error) : null),
         h("div", { class: "fields", style: "padding:0" },
           vec("Position", i.world.p, (n, v) => (i.world.p = i.world.p.map((x, k) => (k === n ? v : x)))),
-          vec("Rotation", e, (n, v) => { const ne = e.slice(); ne[n] = v; i.world.q = L.quatOf(ne); }),
+          vec("Rotation", e, (n, v) => { const ne = e.slice(); ne[n] = v; i.world.q = quatOf(ne); }),
           vec("Scale", i.world.s, (n, v) => (i.world.s = i.world.s.map((x, k) => (k === n ? v : x))))),
         h("div", { class: "muted small", style: "margin-top:6px" }, "World values. Saving writes them back relative to the object's parent.")));
   }

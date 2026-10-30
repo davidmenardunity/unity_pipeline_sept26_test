@@ -344,6 +344,9 @@ rev.MapPost("/save", async (Pipelines p, string wb, string rev, SaveRequest body
     return Results.Ok(new { revision, paths = files.Select(f => f.Item1) });
 });
 
+// Edits through the Unity data model (Inspector, Level editor): DataModelEndpoints.cs.
+rev.MapDataModel((c, wb, given, ct) => WorkbenchBranchAsync(c, wb, given, ct));
+
 // Publish the workbench's changes to the git branch it was made from (POST …/publishes). Reads that branch's
 // latest commit before and after, so the page can say what landed. Pushes under Pipeline's git token.
 api.MapPost("/workbenches/{wb}/publish", async (Pipelines p, string wb, PublishRequest body, CancellationToken ct) =>

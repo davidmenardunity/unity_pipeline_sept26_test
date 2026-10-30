@@ -1,5 +1,6 @@
 // Explorer: browse a workbench, inspect an asset (facts, .meta, source, cloud preview, import results),
-// preview it in the Scene Preview player, and see the pipeline calls made for it.
+// preview it in the Scene Preview player, edit its values (the Inspector tab, edit.js), and see the pipeline
+// calls made for it.
 // Picking an asset updates the whole panel; work for the previous asset stops, except a preview that is
 // building, which finishes in the background and marks its row.
 "use strict";
@@ -26,6 +27,16 @@
     id: "explorer", name: "Explorer", desc: "Browse a workbench, inspect assets and preview them in the player.",
     shown: () => { if (EX.tab === "viewer" && EX.sel) renderViewer(); },
   });
+
+  // Show an asset in a tab (an operation's "Show" uses it).
+  window.Explorer = {
+    async show(path, tab) {
+      showView("explorer");
+      if (folderOf(path) !== EX.folder) openFolder(folderOf(path));
+      await selectAsset(path);
+      if (tab) showTab(tab);
+    },
+  };
 
   App.on("revision", async ({ wb, revision }) => {
     $("exRev").textContent = revision ? `rev ${revision}` : "";
@@ -99,6 +110,7 @@
 
   async function selectAsset(path, { force = false } = {}) {
     if (!force && EX.sel?.path === path && EX.sel.rev === App.revision) return;
+    if (!(await Inspector.confirmLeave(path))) { if (EX.sel) tree.select(EX.sel.path); renderRows(); return; }
     const wb = App.wb, rev = App.revision;
     // Reads for another asset stop; a preview being built carries on in the background.
     for (const o of Ops.running()) if (o.kind === "read" && o.asset !== path) o.stop(`You picked ${fileName(path)}.`);
@@ -162,6 +174,7 @@
     }
     if (tab === "calls") renderCalls();
     if (tab === "comments") CommentsTab.load();
+    if (tab === "inspector" && EX.sel) Inspector.show(EX.sel.path);
     renderBadges();
   }
 

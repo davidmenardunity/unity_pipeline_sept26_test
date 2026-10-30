@@ -1,0 +1,102 @@
+[
+ {
+  "id": "3061988976350811530",
+  "kind": "instance",
+  "name": "URP_Tree_3",
+  "assetGuid": "af90fe2f0f252bf4b8c2ab79bcd41edf",
+  "primitive": null,
+  "world": {
+   "p": [
+    -31.71,
+    -1.110223e-16,
+    2.55
+   ],
+   "q": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "s": [
+    1,
+    1,
+    1
+   ]
+  }
+ },
+ {
+  "id": "3316137133929576409",
+  "kind": "instance",
+  "name": "URP_Tree_1",
+  "assetGuid": "022485ff60e4a26418217d8ab778a812",
+  "primitive": null,
+  "world": {
+   "p": [
+    -51.96,
+    -1.110223e-16,
+    2.55
+   ],
+   "q": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "s": [
+    1,
+    1,
+    1
+   ]
+  }
+ },
+ {
+  "id": "3984205226317691292",
+  "kind": "instance",
+  "name": "URP_Tree_2",
+  "assetGuid": "40cc2dd6b744b344a9a4ea56076c47fb",
+  "primitive": null,
+  "world": {
+   "p": [
+    -42.21,
+    -1.110223e-16,
+    2.55
+   ],
+   "q": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "s": [
+    1,
+    1,
+    1
+   ]
+  }
+ },
+ {
+  "id": "486555523",
+  "kind": "object",
+  "name": "Plane",
+  "assetGuid": null,
+  "primitive": "Plane",
+  "world": {
+   "p": [
+    -41.78,
+    0,
+    2.61
+   ],
+   "q": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "s": [
+    -2.6173434,
+    1,
+    0.5396
+   ]
+  }
+ }
+]
