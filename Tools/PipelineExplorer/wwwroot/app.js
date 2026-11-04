@@ -262,7 +262,7 @@ const Ops = (() => {
 // Steps rendered in a viewer overlay or a panel.
 function stepsEl(op) {
   return h("ol", { class: "steps" }, op.steps.map((s) => h("li", { class: s.state },
-    h("span", { class: "ic" }, s.state === "done" ? "✓" : s.state === "failed" ? "✕" : s.state === "active" ? h("span", { class: "spin", style: "width:10px;height:10px" }) : "·"),
+    h("span", { class: "ic" }, s.state === "done" ? h("i", { class: "ph ph-check" }) : s.state === "failed" ? h("i", { class: "ph ph-x" }) : s.state === "active" ? h("span", { class: "spin", style: "width:10px;height:10px" }) : "·"),
     h("span", {}, s.label, s.sub ? h("span", { class: "sub" }, ` · ${s.sub}`) : null),
     h("span", { class: "t" }, s.t1 && s.t0 ? secs(s.t1 - s.t0) : s.state === "active" && s.t0 ? h("span", { "data-since": s.t0 }, secs(Date.now() - s.t0)) : ""))));
 }
@@ -1054,7 +1054,7 @@ function fileTree(ul, opts = {}) {
       ? h("div", { class: cls, role: "button", tabindex: "0", title: path,
           onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); item.click(); } } },
         h("span", { class: "tw" }, ""), name)
-      : h("button", { class: cls, type: "button", title: path }, h("span", { class: "tw" }, isFolder ? "▸" : ""), name);
+      : h("button", { class: cls, type: "button", title: path }, h("span", { class: "tw" }, isFolder ? h("i", { class: "ph ph-caret-right" }) : ""), name);
     const li = h("li", { "data-path": path, "data-folder": isFolder ? "1" : null }, item);
     if (draggable) {
       item.draggable = true;
@@ -1068,7 +1068,7 @@ function fileTree(ul, opts = {}) {
     li.expand = async () => {
       if (loaded) return;
       loaded = true;
-      item.querySelector(".tw").textContent = "▾";
+      item.querySelector(".tw").classList.add("open");
       const sub = h("ul", {}, h("li", { class: "note" }, h("span", { class: "spin" }), " loading…"));
       li.append(sub);
       try {
@@ -1079,7 +1079,7 @@ function fileTree(ul, opts = {}) {
         loaded = false;
       }
     };
-    li.collapse = () => { item.querySelector(".tw").textContent = "▸"; li.querySelector("ul")?.remove(); loaded = false; };
+    li.collapse = () => { item.querySelector(".tw").classList.remove("open"); li.querySelector("ul")?.remove(); loaded = false; };
     item.addEventListener("click", () => {
       if (isFolder) {
         if (opts.onFolder) { select(path); opts.onFolder(path, item); if (!loaded) li.expand(); }
@@ -1200,7 +1200,7 @@ function renderExamples() {
       onkeydown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); showView(e.id); } } },
       e.name, busy(e.id) ? h("span", { class: "spin", title: "Something is running in this example" }) : null,
       e.custom ? h("button", { class: "x", type: "button", "aria-label": `Remove ${e.name}`, title: "Remove this example",
-        onclick: () => { writePref("examples", customExamples().filter((c) => c.id !== e.id)); if (App.view === e.id) showView("explorer"); else renderExamples(); } }, "×") : null)),
+        onclick: () => { writePref("examples", customExamples().filter((c) => c.id !== e.id)); if (App.view === e.id) showView("explorer"); else renderExamples(); } }, h("i", { class: "ph ph-x" })) : null)),
     h("button", { class: "ex ex-add", type: "button", onclick: openNewExample }, "+ New example"),
     h("span", { class: "ex-desc" }, cur?.desc ?? ""));
 }
@@ -1306,7 +1306,7 @@ function renderWbStrip() {
   put(strip,
     h("span", { class: "title" }, icon, title, h("span", { class: "muted num", "data-op": op.running ? op.id : null }, secs(op.elapsed))),
     op.steps.length ? h("ol", { class: "msteps" }, op.steps.map((s) => h("li", { class: s.state },
-      s.state === "active" ? h("span", { class: "spin" }) : s.state === "done" ? "✓" : s.state === "failed" ? "✕" : "·",
+      s.state === "active" ? h("span", { class: "spin" }) : s.state === "done" ? h("i", { class: "ph ph-check" }) : s.state === "failed" ? h("i", { class: "ph ph-x" }) : "·",
       s.label, s.sub ? h("span", { class: "muted" }, `(${s.sub})`) : null))) : null,
     h("span", { class: "grow" }),
     h("button", { class: "btn small ghost", type: "button", onclick: () => openDrawer(true, op) }, "Details"),

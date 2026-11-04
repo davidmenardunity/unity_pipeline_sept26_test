@@ -591,7 +591,7 @@ const StageComments = {
     const t = this.thread;
     const rev = `${!!t.root}|${t.replies?.length ?? -1}|${!!t.error}`;
     if (this._thread?.t === t && this._thread.rev === rev) return this._thread.el;
-    const close = h("button", { class: "btn small ghost", type: "button", title: "Close", onclick: () => { this.thread = null; this.renderBubbles(); } }, "×");
+    const close = h("button", { class: "btn small ghost", type: "button", title: "Close", onclick: () => { this.thread = null; this.renderBubbles(); } }, h("i", { class: "ph ph-x" }));
     let body;
     if (t.error) body = collabErrorEl(t.error, () => this.openThread({ id: t.id }));
     else if (!t.root) body = h("div", { class: "loading-line" }, h("span", { class: "spin" }), "Reading the thread…");
