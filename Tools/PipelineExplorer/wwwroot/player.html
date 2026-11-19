@@ -88,8 +88,8 @@
       parent.postMessage({ type: "player-ready" }, location.origin);
       queue.splice(0).forEach(load);
     })().catch((e) => {
-      msg.textContent = `The player didn't start: ${e.message}`;
-      parent.postMessage({ type: "player-error", message: `The player didn't start: ${e.message}` }, location.origin);
+      msg.textContent = `The player didn't start: ${e?.message ?? e}`;
+      parent.postMessage({ type: "player-error", message: `The player didn't start: ${e?.message ?? e}` }, location.origin);
     });
   </script>
 </body>

@@ -73,7 +73,12 @@ public sealed class PipelineApiException : Exception
             var error = root.TryGetProperty("error", out var err) ? err : default;
             var code = Str(error, "code") ?? Str(root, "code")
                        ?? (root.TryGetProperty("code", out var n) && n.ValueKind == JsonValueKind.Number ? n.GetRawText() : null);
-            var detail = Str(error, "message") ?? Str(root, "detail") ?? Str(root, "title");
+            // error.message can be generic ("did not say why") while the problem's detail holds the real cause
+            // (a failed git clone, say): keep both.
+            var message = Str(error, "message");
+            var problem = Str(root, "detail");
+            var detail = message != null && problem != null && problem != message ? $"{message} {problem}"
+                : message ?? problem ?? Str(root, "title");
             return new PipelineApiException(method, path, status, code, detail, Str(root, "requestId"), false);
         }
         catch (JsonException)

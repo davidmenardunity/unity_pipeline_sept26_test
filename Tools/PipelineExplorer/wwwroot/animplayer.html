@@ -53,7 +53,7 @@
       }, (p) => send({ type: "player-progress", progress: p }));
       send({ type: "player-ready" });
       queue.splice(0).forEach(([m, a]) => call(m, a));
-    })().catch((e) => send({ type: "player-error", message: `The animation viewer didn't start: ${e.message}` }));
+    })().catch((e) => send({ type: "player-error", message: `The animation viewer didn't start: ${e?.message ?? e}` }));
   </script>
 </body>
 </html>
